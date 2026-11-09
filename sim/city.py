@@ -5,7 +5,7 @@ carry `length` in metres and `time` in seconds) and provides lazy, cached
 shortest-path queries so large real road networks stay fast.
 
 Sources:
-  * "grid"  - synthetic jittered grid near Foster City (instant, offline)
+  * "grid"  - synthetic jittered grid (instant, offline)
   * others  - real roads from OpenStreetMap via OSMnx (needs internet on first
               load; graphs are cached to data/osm_cache/)
 """
@@ -22,10 +22,9 @@ import networkx as nx
 M_PER_DEG_LAT = 111_000.0
 CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "osm_cache"
 
-# key -> label, centre (lat, lon), radius in metres.  Zoox operating areas + HQ.
+# key -> label, centre (lat, lon), radius in metres.
 CITIES = {
-    "grid": {"label": "Synthetic grid (instant)", "center": (37.5585, -122.2711)},
-    "foster_city": {"label": "Foster City, CA (Zoox HQ)", "center": (37.5585, -122.2711), "dist": 1800},
+    "grid": {"label": "Synthetic grid (instant)", "center": (37.7749, -122.4194)},
     "san_francisco": {"label": "San Francisco - Downtown / SoMa", "center": (37.7870, -122.4010), "dist": 1600},
     "las_vegas": {"label": "Las Vegas - Strip", "center": (36.1147, -115.1728), "dist": 2000},
     "austin": {"label": "Austin - Downtown", "center": (30.2672, -97.7431), "dist": 1600},

@@ -1,7 +1,7 @@
 # Robotaxi Dispatch Simulator
 
 Fleet simulator where **dispatch policy** and **vehicle reliability** interact.
-Synthetic city (jittered grid near Foster City), Weibull component failures,
+Synthetic city (jittered grid), Weibull component failures,
 live Leaflet map, and a headless policy-comparison endpoint.
 
 ## Run
@@ -11,7 +11,7 @@ live Leaflet map, and a headless policy-comparison endpoint.
 
 ## Cities
 Pick a city in the sidebar: a synthetic grid (instant, offline) or real OpenStreetMap roads for
-Foster City, San Francisco, Las Vegas, Austin, Miami, Los Angeles. Real cities download roads
+San Francisco, Las Vegas, Austin, Miami, Los Angeles. Real cities download roads
 via OSMnx on first use (needs internet, ~10-30s) and are cached in `data/osm_cache/`.
 Add your own in `sim/city.py:CITIES` (centre lat/lon + radius in metres).
 
