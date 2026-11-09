@@ -11,7 +11,7 @@ live Leaflet map, and a headless policy-comparison endpoint.
 
 ## Map
 MapLibre GL with free OpenFreeMap vector tiles (no API key): street names at every zoom, 3D buildings,
-light/dark themes. Cars are map-aligned icons that glide between sim updates; glowing lines show each
+light/dark themes, plus a Satellite toggle (Esri World Imagery + street labels). Cars are map-aligned icons that glide between sim updates; glowing lines show each
 car's route to its pickup / dropoff; waiting riders pulse. Buttons: 3D view, Orbit, Follow a car.
 
 ## Cities
