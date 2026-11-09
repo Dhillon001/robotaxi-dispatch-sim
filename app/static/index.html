@@ -487,6 +487,11 @@ map.on("zoom", e => { if (e.originalEvent && followId != null) followZoom = map.
 map.on("dragstart", e => { if (e.originalEvent) stopFollow(); });
 map.on("rotatestart", e => { if (e.originalEvent) stopFollow(); });
 map.on("pitchstart", e => { if (e.originalEvent) stopFollow(); });
+/* the per-frame jumpTo can swallow MapLibre's drag events, so also watch raw pointer movement */
+{ let down = null; const el = map.getCanvasContainer();
+  el.addEventListener("pointerdown", e => { down = [e.clientX, e.clientY]; });
+  el.addEventListener("pointermove", e => { if (down && followId != null && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 6) { stopFollow(); down = null; } });
+  window.addEventListener("pointerup", () => { down = null; }); }
 window.addEventListener("keydown", e => { if (e.key === "Escape") stopFollow(); });
 
 
