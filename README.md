@@ -9,6 +9,11 @@ live Leaflet map, and a headless policy-comparison endpoint.
     uvicorn app.main:app --reload      # open http://localhost:8000
     pytest -q
 
+## Map
+MapLibre GL with free OpenFreeMap vector tiles (no API key): street names at every zoom, 3D buildings,
+light/dark themes. Cars are map-aligned icons that glide between sim updates; glowing lines show each
+car's route to its pickup / dropoff; waiting riders pulse. Buttons: 3D view, Orbit, Follow a car.
+
 ## Cities
 Pick a city in the sidebar: a synthetic grid (instant, offline) or real OpenStreetMap roads for
 San Francisco, Las Vegas, Austin, Miami, Los Angeles. Real cities download roads

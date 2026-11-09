@@ -403,8 +403,12 @@ class Sim:
                 dy = b["lat"] - a["lat"]
                 if abs(dx) + abs(dy) > 1e-12:
                     v.heading = math.degrees(math.atan2(dx, dy))
+            route = []
+            if v.route and v.state in (TO_PICKUP, RIDING, REPOSITION):
+                route = [[round(lon, 6), round(lat, 6)]] + [
+                    [round(self.g.nodes[n]["lon"], 6), round(self.g.nodes[n]["lat"], 6)] for n in v.route[:30]]
             vs.append({
-                "id": v.id, "lat": lat, "lon": lon, "state": v.state, "heading": round(v.heading, 1),
+                "id": v.id, "lat": lat, "lon": lon, "state": v.state, "heading": round(v.heading, 1), "route": route,
                 "health": round(min(v.km / max(v.fail_at_km, 1e-6), 1.5), 2),
                 "km": round(v.km, 1),
             })

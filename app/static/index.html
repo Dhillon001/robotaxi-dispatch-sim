@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Robotaxi Dispatch Simulator</title>
-<link rel="stylesheet" href="/static/vendor/leaflet.css">
+<link rel="stylesheet" href="/static/vendor/maplibre-gl.css">
 <style>
   :root {
     --bg:#0e1217; --panel:#161c24; --card:#1b232d; --line:#2a3441; --fg:#e8edf3; --mut:#8896a8;
-    --acc:#4cc2ff; --acc-fg:#04121c; --map:#10161d; --road:#24303d; --art:#3a4a5d; --shadow:0 1px 2px #0006;
+    --acc:#4cc2ff; --acc-fg:#04121c; --shadow:0 1px 2px #0006;
     --idle:#4cc2ff; --pickup:#f5c542; --riding:#46d38a; --repo:#b48cff; --service:#7d8a9a; --down:#ff5d5d; --rider:#ff9f43;
   }
   :root[data-theme="light"] {
     --bg:#f3f5f8; --panel:#ffffff; --card:#f6f8fb; --line:#dde3ea; --fg:#18212b; --mut:#5f6f82;
-    --acc:#0a7cff; --acc-fg:#ffffff; --map:#e6ebf1; --road:#c3ccd7; --art:#9eacbc; --shadow:0 1px 2px #0002;
+    --acc:#0a7cff; --acc-fg:#ffffff; --shadow:0 1px 2px #0002;
     --idle:#1c8fe0; --pickup:#e0a500; --riding:#1fa463; --repo:#8a5cf0; --service:#8794a4; --down:#e5393b; --rider:#f2780c;
   }
   * { box-sizing:border-box; }
@@ -21,7 +21,6 @@
   body { margin:0; font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--fg);
          display:grid; grid-template-rows:auto auto 1fr; transition:background .25s,color .25s; }
 
-  /* ---------- top bar ---------- */
   header { display:flex; align-items:center; gap:14px; padding:10px 18px; background:var(--panel); border-bottom:1px solid var(--line); }
   .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:16px; letter-spacing:-.01em; }
   .brand svg { width:26px; height:26px; }
@@ -32,17 +31,16 @@
   .iconbtn:hover { border-color:var(--acc); }
   .iconbtn svg { width:18px; height:18px; }
 
-  /* ---------- stat strip ---------- */
   #strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:10px; padding:12px 18px; background:var(--bg); }
   .stat { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:9px 12px; box-shadow:var(--shadow); position:relative; overflow:hidden; }
   .stat::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--c,var(--line)); }
   .stat b { display:block; font-size:22px; line-height:1.1; font-variant-numeric:tabular-nums; }
   .stat span { font-size:11px; color:var(--mut); text-transform:uppercase; letter-spacing:.05em; }
 
-  /* ---------- main ---------- */
   main { display:grid; grid-template-columns:320px 1fr; min-height:0; }
   aside { background:var(--panel); border-right:1px solid var(--line); padding:14px 16px; overflow:auto; }
-  #map { background:var(--map); transition:background .25s; min-height:300px; }
+  #mapwrap { position:relative; min-height:300px; background:var(--card); }
+  #map { position:absolute; inset:0; }
   h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--mut); margin:18px 0 8px; font-weight:600; }
   h2:first-child { margin-top:0; }
   label { display:block; margin:8px 0 3px; color:var(--mut); font-size:12px; }
@@ -50,6 +48,7 @@
   button.btn { width:100%; padding:8px 10px; margin-top:10px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); font:600 13px inherit; cursor:pointer; }
   button.btn.pri { background:var(--acc); color:var(--acc-fg); border-color:transparent; }
   button.btn:hover { filter:brightness(1.06); }
+  button.btn:disabled { opacity:.6; cursor:progress; }
   .row { display:flex; gap:8px; } .row > * { flex:1; }
   .mini { display:grid; grid-template-columns:1fr auto; row-gap:4px; font-size:13px; }
   .mini span:nth-child(odd) { color:var(--mut); } .mini span:nth-child(even) { font-weight:600; font-variant-numeric:tabular-nums; text-align:right; }
@@ -64,21 +63,24 @@
   td small { color:var(--mut); }
   tr.best td { background:color-mix(in srgb,var(--riding) 14%,transparent); }
 
-  /* ---------- map markers ---------- */
-  .car { transition:transform .45s linear; }
-  .car svg { display:block; width:calc(15px * var(--k,1)); height:calc(26px * var(--k,1)); overflow:visible; filter:drop-shadow(0 1px 1.5px #0008); }
-  .car.down svg { animation:blink 1s infinite; }
-  @keyframes blink { 50% { opacity:.35; } }
-  .rider { width:14px; height:14px; border-radius:50%; background:#fff; border:3px solid var(--rider); position:relative; }
-  .rider::after { content:""; position:absolute; inset:-9px; border-radius:50%; border:2px solid var(--rider); opacity:.0; animation:ping 1.6s infinite; }
-  @keyframes ping { 0% { transform:scale(.4); opacity:.8; } 100% { transform:scale(1.2); opacity:0; } }
-  .leaflet-container { font:inherit; }
-  #map.dark-tiles .leaflet-tile-pane { filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.6); }
-  .leaflet-control-attribution { background:color-mix(in srgb,var(--panel) 80%,transparent) !important; color:var(--mut) !important; }
-  .leaflet-control-attribution a { color:var(--mut) !important; }
-  .leaflet-tooltip { background:var(--panel); color:var(--fg); border:1px solid var(--line); box-shadow:var(--shadow); }
+  /* map overlay controls */
+  .mapctl { position:absolute; left:12px; top:12px; z-index:3; display:flex; gap:8px; flex-wrap:wrap; }
+  .chip { display:flex; align-items:center; gap:7px; padding:8px 13px; border-radius:999px; border:1px solid var(--line); cursor:pointer;
+          background:color-mix(in srgb,var(--panel) 86%,transparent); color:var(--fg); font:600 12px inherit; backdrop-filter:blur(8px); box-shadow:var(--shadow); }
+  .chip:hover { border-color:var(--acc); }
+  .chip.on { background:var(--acc); color:var(--acc-fg); border-color:transparent; }
+  .chip svg { width:15px; height:15px; }
+  #hud { position:absolute; left:12px; bottom:28px; z-index:3; padding:8px 12px; border-radius:12px; font-size:12px; border:1px solid var(--line); max-width:340px;
+         background:color-mix(in srgb,var(--panel) 86%,transparent); backdrop-filter:blur(8px); color:var(--mut); display:none; }
+  .maplibregl-popup-content { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); font:12px/1.45 system-ui,sans-serif; padding:8px 11px; }
+  .maplibregl-popup-tip { display:none; }
+  .maplibregl-ctrl-group { background:var(--panel); border:1px solid var(--line); }
+  .maplibregl-ctrl-group button { border-color:var(--line); }
+  .maplibregl-ctrl-attrib { background:color-mix(in srgb,var(--panel) 80%,transparent) !important; color:var(--mut) !important; }
+  .maplibregl-ctrl-attrib a { color:var(--mut) !important; }
+  :root[data-theme="dark"] .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter:invert(1); }
 
-  @media (max-width:820px) { main { grid-template-columns:1fr; grid-template-rows:auto 60vh; } aside { border-right:0; border-bottom:1px solid var(--line); } }
+  @media (max-width:820px) { main { grid-template-columns:1fr; grid-template-rows:auto 62vh; } aside { border-right:0; border-bottom:1px solid var(--line); } }
 </style>
 </head>
 <body>
@@ -123,123 +125,223 @@
     <button class="btn" id="cmp" style="margin-top:0">Run headless comparison (3h × 3 seeds)</button>
     <div id="cmpOut" style="margin-top:10px"></div>
   </aside>
-  <div id="map"></div>
+
+  <div id="mapwrap">
+    <div id="map"></div>
+    <div class="mapctl">
+      <button class="chip" id="b3d" title="Tilt the camera and show 3D buildings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/></svg>3D view</button>
+      <button class="chip" id="borbit" title="Slowly orbit the camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>Orbit</button>
+      <button class="chip" id="bfollow" title="Fly to a random busy car"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>Follow a car</button>
+    </div>
+    <div id="hud"></div>
+  </div>
 </main>
 
-<script src="/static/vendor/leaflet.js"></script>
+<script src="/static/vendor/maplibre-gl.js"></script>
 <script>
 const STATES = {
   idle:["Idle","--idle"], to_pickup:["To pickup","--pickup"], riding:["Riding","--riding"],
   reposition:["Repositioning","--repo"], service:["In service","--service"], down:["Failed","--down"]
 };
+const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";   // free vector map, no API key
 const $ = id => document.getElementById(id);
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-const carSVG = c => `<svg viewBox="0 0 22 38"><rect x="1" y="1" width="20" height="36" rx="8" fill="${c}" stroke="#0b0f14" stroke-opacity=".55" stroke-width="1.5"/><path d="M4.5 11.5c0-1.4 1-2.5 2.4-2.8 2.5-.6 5.7-.6 8.2 0 1.4.3 2.4 1.4 2.4 2.8v1.8H4.5z" fill="#0b0f14" fill-opacity=".62"/><rect x="5" y="17" width="12" height="8" rx="2" fill="#fff" fill-opacity=".22"/><path d="M5 30.5h12" stroke="#0b0f14" stroke-opacity=".5" stroke-width="2" stroke-linecap="round"/></svg>`;
+const stateColor = k => css(STATES[k][1]);
+const carSVG = c => `<svg viewBox="0 0 22 38"><rect x="1" y="1" width="20" height="36" rx="8" fill="${c}" stroke="#0b0f14" stroke-opacity=".55" stroke-width="1.5"/><path d="M4.5 11.5c0-1.4 1-2.5 2.4-2.8 2.5-.6 5.7-.6 8.2 0 1.4.3 2.4 1.4 2.4 2.8v1.8H4.5z" fill="#0b0f14" fill-opacity=".62"/><rect x="5" y="17" width="12" height="8" rx="2" fill="#fff" fill-opacity=".22"/></svg>`;
 
-/* ---------- theme ---------- */
+/* ================= theme ================= */
 const SUN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`;
 const MOON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`;
 let theme = "dark";
 try { theme = localStorage.getItem("theme") || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"); } catch (e) {}
-function applyTheme(t) {
+document.documentElement.dataset.theme = theme;
+async function applyTheme(t) {
   theme = t; document.documentElement.dataset.theme = t;
   $("theme").innerHTML = t === "dark" ? SUN : MOON;
   try { localStorage.setItem("theme", t); } catch (e) {}
-  if (roads) roads.setStyle(roadStyle);
-  syncTiles(); buildLegend(); if (last) draw(last, true);
+  buildLegend();
+  if (map.loaded() || map.getStyle()) await applyStyle();
 }
 $("theme").onclick = () => applyTheme(theme === "dark" ? "light" : "dark");
 
-/* ---------- map ---------- */
-const map = L.map("map", {zoomControl:true, preferCanvas:false, zoomSnap:.25, attributionControl:false}).setView([37.7749,-122.4194], 15.25);
-L.control.attribution({prefix:false}).addTo(map);
-const tileLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19, attribution:"&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors"});
-let realCity = false;
-function syncTiles() {
-  if (realCity && !map.hasLayer(tileLayer)) tileLayer.addTo(map);
-  if (!realCity && map.hasLayer(tileLayer)) map.removeLayer(tileLayer);
-  $("map").classList.toggle("dark-tiles", theme === "dark");
-}
-const reqLayer = L.layerGroup().addTo(map);
-const carLayer = L.layerGroup().addTo(map);
-let roads = null, last = null, playing = true, busy = false;
-const cars = new Map();
-const roadStyle = f => realCity
-  ? ({color: css("--acc"), weight: f.properties.fast ? 3 : 2, lineCap:"round", opacity: f.properties.fast ? .55 : .35})
-  : ({color: f.properties.fast ? css("--art") : css("--road"), weight: f.properties.fast ? 5 : 3, lineCap:"round", opacity:1});
-function setScale() { document.getElementById("map").style.setProperty("--k", Math.max(.7, Math.min(2.2, 1 + (map.getZoom() - 15.25) * .45))); }
-map.on("zoomend", setScale); setScale();
+/* ================= basemap styles ================= */
+let realCity = false, libertyJSON = null, styleNote = "";
+const blankStyle = dark => ({version: 8, sources: {}, layers: [{id: "bg", type: "background", paint: {"background-color": dark ? "#10161d" : "#e6ebf1"}}]});
 
-function buildLegend() {
-  $("legend").innerHTML = Object.values(STATES).map(([n, v]) => `<div>${carSVG(css(v))}${n}</div>`).join("") +
-    `<div><i class="rider-dot"></i>Waiting rider</div>`;
+// Dark mode: re-colour the light vector style by inverting lightness (keeps hue).
+const _cv = document.createElement("canvas").getContext("2d");
+function toRGBA(str) {
+  _cv.fillStyle = "#010203"; _cv.fillStyle = str; const o = _cv.fillStyle;
+  if (o === "#010203") return null;
+  if (o[0] === "#") return [parseInt(o.slice(1, 3), 16), parseInt(o.slice(3, 5), 16), parseInt(o.slice(5, 7), 16), 1];
+  const m = o.match(/[\d.]+/g).map(Number); return [m[0], m[1], m[2], m.length > 3 ? m[3] : 1];
 }
-
-async function api(path, opts) {
-  const r = await fetch(path, opts), j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.detail || r.statusText);
-  return j;
+function rgb2hsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2; let h = 0, s = 0;
+  if (mx !== mn) { const d = mx - mn; s = l > .5 ? d / (2 - mx - mn) : d / (mx + mn);
+    h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; }
+  return [h, s, l];
 }
-async function loadRoads() {
-  if (roads) map.removeLayer(roads);
-  roads = L.geoJSON(await api("/api/graph"), {style: roadStyle, interactive:false}).addTo(map);
-  map.fitBounds(roads.getBounds(), {padding:[30,30]});
+function darkColor(str, rule) {
+  if (typeof str !== "string" || !/^(#|rgb|hsl)/i.test(str)) return str;
+  const c = toRGBA(str); if (!c) return str;
+  const [h, s, l] = rgb2hsl(c[0], c[1], c[2]);
+  const L = rule === "text" ? .62 + .33 * (1 - l) : rule === "halo" ? .05 + .1 * (1 - l) : rule === "road" ? .2 + .3 * l : rule === "bldg" ? .21 + .2 * (1 - l) : .07 + .42 * (1 - l);
+  return `hsla(${h.toFixed(0)},${Math.round(Math.min(s, .6) * 100)}%,${(L * 100).toFixed(1)}%,${c[3]})`;
 }
-
-async function init() {
-  const cfg = await api("/api/config");
-  $("city").innerHTML = cfg.cities.map(c => `<option value="${c.key}">${c.label}</option>`).join("");
-  $("city").value = cfg.default_city;
-  $("dispatch").innerHTML = cfg.dispatch.map(d => `<option>${d}</option>`).join("");
-  $("maint").innerHTML = cfg.maintenance.map(d => `<option>${d}</option>`).join("");
-  applyTheme(theme);
-  await doReset(); loop();
+function mapColors(v, rule) { return Array.isArray(v) ? v.map(x => mapColors(x, rule)) : (v && typeof v === "object" && !Array.isArray(v) ? v : darkColor(v, rule)); }
+function darkenStyle(st) {
+  const ROAD = /road|motorway|trunk|primary|secondary|tertiary|street|path|bridge|tunnel|service|link|minor|highway|rail|ferry/i;
+  for (const l of st.layers) {
+    const p = l.paint; if (!p) continue;
+    for (const k of Object.keys(p)) {
+      if (!/color$/.test(k)) continue;
+      const rule = k === "text-color" ? "text" : k === "text-halo-color" ? "halo" : k === "fill-extrusion-color" ? "bldg"
+        : (l.type === "line" && ROAD.test(l.id) && !/casing|outline/i.test(l.id)) ? "road" : "fill";
+      p[k] = mapColors(p[k], rule);
+    }
+  }
+  return st;
 }
-async function doReset() {
-  const btn = $("reset"), info = $("cityInfo"), real = $("city").value !== "grid";
-  const q = new URLSearchParams({city:$("city").value, dispatch:$("dispatch").value, maintenance:$("maint").value, n_vehicles:$("nveh").value, demand_per_min:$("dem").value});
-  btn.disabled = true; btn.textContent = real ? "Loading roads… (first time can take 30s)" : "Loading…";
-  playing = false;
+async function makeStyle() {
+  const dark = theme === "dark";
+  if (!realCity) { styleNote = ""; return blankStyle(dark); }
   try {
-    const r = await api("/api/reset?" + q, {method:"POST"});
-    info.style.color = ""; info.textContent = `${r.city.nodes.toLocaleString()} intersections · ${r.city.edges.toLocaleString()} road segments`;
-    realCity = $("city").value !== "grid"; syncTiles();
-    await loadRoads();
-    carLayer.clearLayers(); cars.clear(); draw(await api("/api/state"), true);
+    if (!libertyJSON) libertyJSON = await (await fetch(STYLE_URL)).json();
+    styleNote = "";
+    const st = JSON.parse(JSON.stringify(libertyJSON));
+    return dark ? darkenStyle(st) : st;
   } catch (e) {
-    info.style.color = css("--down"); info.textContent = e.message.length > 170 ? e.message.slice(0, 170) + "…" : e.message;
-  } finally {
-    btn.disabled = false; btn.textContent = "Reset & apply"; playing = $("play").textContent === "Pause";
+    styleNote = "Couldn't load the street map (check your internet connection). Showing the road network only.";
+    return blankStyle(dark);
   }
 }
 
-function carIcon(v) {
-  const c = css(STATES[v.state][1]);
-  return L.divIcon({className:"", iconSize:[0,0], html:`<div class="car ${v.state}" style="transform:translate(-50%,-50%) rotate(${v.heading}deg)">${carSVG(c)}</div>`});
-}
-function draw(s, force) {
-  last = s;
-  // cars: update in place so they glide instead of flicker
-  s.vehicles.forEach(v => {
-    let m = cars.get(v.id);
-    const tip = `<b>#${v.id}</b> ${STATES[v.state][0]}<br>${v.km} km since service · wear ${Math.round(v.health*100)}%`;
-    if (!m) { m = L.marker([v.lat, v.lon], {icon:carIcon(v), interactive:true, keyboard:false}).bindTooltip(tip, {direction:"top", offset:[0,-10]}).addTo(carLayer); cars.set(v.id, m); m._st = v.state; m._hd = v.heading; }
-    else {
-      m.setLatLng([v.lat, v.lon]);
-      if (force || m._st !== v.state || Math.abs(m._hd - v.heading) > 1) { m.setIcon(carIcon(v)); m._st = v.state; m._hd = v.heading; }
-      m.setTooltipContent(tip);
-    }
-  });
-  reqLayer.clearLayers();
-  s.pending.forEach(r => L.marker([r.lat, r.lon], {icon:L.divIcon({className:"", iconSize:[0,0], html:`<div class="rider" style="transform:translate(-50%,-50%)"></div>`}), interactive:false}).addTo(reqLayer));
+/* ================= map ================= */
+const map = new maplibregl.Map({container: "map", style: blankStyle(theme === "dark"), center: [-122.4194, 37.7749], zoom: 13, pitch: 0, attributionControl: {compact: true}, maxPitch: 70});
+map.addControl(new maplibregl.NavigationControl({visualizePitch: true}), "top-right");
+const popup = new maplibregl.Popup({closeButton: false, closeOnClick: false, offset: 14});
+let roadsGeo = null, bounds = null, tilt3d = false, orbit = false, vehicleInfo = new Map();
 
+const colorExpr = ["match", ["get", "state"], "idle", "#4cc2ff", "to_pickup", "#f5c542", "riding", "#46d38a", "reposition", "#b48cff", "service", "#7d8a9a", "down", "#ff5d5d", "#4cc2ff"];
+function themedColorExpr() {
+  const e = ["match", ["get", "state"]]; Object.keys(STATES).forEach(k => e.push(k, stateColor(k))); e.push(stateColor("idle")); return e;
+}
+function carImage(color) {  // top-down car, pointing north
+  const W = 44, H = 76, cv = document.createElement("canvas"); cv.width = W; cv.height = H; const c = cv.getContext("2d");
+  const rr = (x, y, w, h, r) => { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); };
+  c.shadowColor = "rgba(0,0,0,.45)"; c.shadowBlur = 5; c.shadowOffsetY = 2;
+  rr(4, 3, 36, 70, 15); c.fillStyle = color; c.fill(); c.shadowColor = "transparent";
+  c.lineWidth = 2.5; c.strokeStyle = "rgba(255,255,255,.92)"; c.stroke();
+  c.fillStyle = "rgba(8,12,18,.72)"; rr(9, 17, 26, 11, 5); c.fill();         // windshield
+  c.fillStyle = "rgba(255,255,255,.28)"; rr(10, 33, 24, 15, 5); c.fill();    // roof
+  c.fillStyle = "rgba(8,12,18,.6)"; rr(10, 56, 24, 7, 3); c.fill();          // rear glass
+  c.fillStyle = "#fff"; c.fillRect(8, 6, 8, 3); c.fillRect(28, 6, 8, 3);     // headlights
+  return c.getImageData(0, 0, W, H);
+}
+async function applyStyle() {
+  const st = await makeStyle();
+  await new Promise(res => { map.once("style.load", res); map.setStyle(st, {diff: false}); });
+  addOverlay();
+  $("hud").style.display = styleNote ? "block" : "none"; $("hud").textContent = styleNote;
+}
+function addOverlay() {
+  Object.keys(STATES).forEach(k => { if (map.hasImage("car-" + k)) map.removeImage("car-" + k); map.addImage("car-" + k, carImage(stateColor(k)), {pixelRatio: 2}); });
+  const empty = {type: "FeatureCollection", features: []};
+  ["roads", "routes", "cars", "riders"].forEach(id => map.addSource(id, {type: "geojson", data: id === "roads" && roadsGeo ? roadsGeo : empty}));
+  const firstSymbol = (map.getStyle().layers.find(l => l.type === "symbol") || {}).id;  // keep street labels above our lines
+  const art = css("--art") || "#3a4a5d";
+  const gridRoad = theme === "dark" ? ["#24303d", "#3a4a5d"] : ["#c3ccd7", "#9eacbc"];
+  map.addLayer({id: "roads", type: "line", source: "roads", layout: {"line-cap": "round", "line-join": "round"},
+    paint: realCity
+      ? {"line-color": css("--acc"), "line-opacity": ["case", ["get", "fast"], .5, .28], "line-width": ["interpolate", ["linear"], ["zoom"], 12, .6, 17, ["case", ["get", "fast"], 3, 2]]}
+      : {"line-color": ["case", ["get", "fast"], gridRoad[1], gridRoad[0]], "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.5, 17, ["case", ["get", "fast"], 9, 6]]}}, firstSymbol);
+  map.addLayer({id: "routes-glow", type: "line", source: "routes", layout: {"line-cap": "round", "line-join": "round"},
+    paint: {"line-color": themedColorExpr(), "line-opacity": .32, "line-blur": 4, "line-width": ["interpolate", ["linear"], ["zoom"], 12, 5, 18, 16]}}, firstSymbol);
+  map.addLayer({id: "routes", type: "line", source: "routes", layout: {"line-cap": "round", "line-join": "round"},
+    paint: {"line-color": themedColorExpr(), "line-opacity": .95, "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.6, 18, 5]}}, firstSymbol);
+  map.addLayer({id: "riders-pulse", type: "circle", source: "riders", paint: {
+    "circle-radius": ["interpolate", ["linear"], ["get", "p"], 0, 6, 1, 26], "circle-color": "rgba(0,0,0,0)",
+    "circle-stroke-color": css("--rider"), "circle-stroke-width": 2, "circle-stroke-opacity": ["-", 1, ["get", "p"]], "circle-pitch-alignment": "map"}});
+  map.addLayer({id: "riders", type: "circle", source: "riders", paint: {
+    "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 4, 18, 9], "circle-color": "#ffffff", "circle-stroke-color": css("--rider"), "circle-stroke-width": 3, "circle-pitch-alignment": "map"}});
+  map.addLayer({id: "cars-glow", type: "circle", source: "cars", paint: {
+    "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 7, 16, 15, 19, 34], "circle-color": themedColorExpr(), "circle-opacity": .28, "circle-blur": 1, "circle-pitch-alignment": "map"}});
+  map.addLayer({id: "cars", type: "symbol", source: "cars", layout: {
+    "icon-image": ["concat", "car-", ["get", "state"]], "icon-rotate": ["get", "heading"], "icon-rotation-alignment": "map", "icon-pitch-alignment": "map",
+    "icon-allow-overlap": true, "icon-ignore-placement": true,
+    "icon-size": ["interpolate", ["linear"], ["zoom"], 11, .28, 14, .46, 15, .7, 16, 1, 17, 1.5, 18, 2.4, 19, 4]}});
+}
+map.on("mousemove", "cars", e => {
+  const f = e.features[0]; if (!f) return; const v = vehicleInfo.get(f.properties.id);
+  map.getCanvas().style.cursor = "pointer"; if (!v) return;
+  popup.setLngLat(e.lngLat).setHTML(`<b>Car #${v.id}</b> · ${STATES[v.state][0]}<br>${v.km} km since service · wear ${Math.round(v.health * 100)}%`).addTo(map);
+});
+map.on("mouseleave", "cars", () => { map.getCanvas().style.cursor = ""; popup.remove(); });
+map.on("dragstart", () => { if (orbit) setOrbit(false); });
+
+/* camera controls */
+function set3d(on, animate = true) {
+  tilt3d = on; $("b3d").classList.toggle("on", on);
+  map.easeTo({pitch: on ? 58 : 0, bearing: on ? map.getBearing() || -20 : 0, duration: animate ? 900 : 0});
+}
+function setOrbit(on) { orbit = on; $("borbit").classList.toggle("on", on); if (on && !tilt3d) set3d(true); }
+$("b3d").onclick = () => set3d(!tilt3d);
+$("borbit").onclick = () => setOrbit(!orbit);
+$("bfollow").onclick = () => {
+  const busy = [...disp.values()].filter(d => d.state === "riding" || d.state === "to_pickup"); const pool = busy.length ? busy : [...disp.values()];
+  if (!pool.length) return; const d = pool[Math.floor(Math.random() * pool.length)];
+  if (!tilt3d) set3d(true, false);
+  map.flyTo({center: [d.x1, d.y1], zoom: 17.2, pitch: 62, bearing: d.h1, duration: 2200, essential: true});
+};
+
+/* ================= data + animation ================= */
+const disp = new Map();   // id -> interpolation record
+let lastPoll = performance.now(), pollDur = 300, riders = [], routesFC = {type: "FeatureCollection", features: []}, last = null;
+
+function ingest(s) {
+  const now = performance.now(); pollDur = Math.max(120, Math.min(900, now - lastPoll)); lastPoll = now; last = s;
+  vehicleInfo = new Map(s.vehicles.map(v => [v.id, v]));
+  const seen = new Set();
+  s.vehicles.forEach(v => {
+    seen.add(v.id); let d = disp.get(v.id);
+    if (!d) { d = {x: v.lon, y: v.lat, h: v.heading}; disp.set(v.id, d); }
+    Object.assign(d, {x0: d.x, y0: d.y, h0: d.h, x1: v.lon, y1: v.lat, h1: v.heading, t0: now, state: v.state, id: v.id});
+  });
+  for (const id of disp.keys()) if (!seen.has(id)) disp.delete(id);
+  routesFC = {type: "FeatureCollection", features: s.vehicles.filter(v => v.route && v.route.length > 1).map(v => ({type: "Feature", properties: {state: v.state}, geometry: {type: "LineString", coordinates: v.route}}))};
+  riders = s.pending;
+  const src = map.getSource("routes"); if (src) src.setData(routesFC);
+  drawUI(s);
+}
+function frame(now) {
+  if (map.getSource("cars")) {
+    const feats = [];
+    disp.forEach(d => {
+      const f = Math.min(1, (now - d.t0) / pollDur), e = f;
+      d.x = d.x0 + (d.x1 - d.x0) * e; d.y = d.y0 + (d.y1 - d.y0) * e;
+      const dh = ((d.h1 - d.h0 + 540) % 360) - 180; d.h = d.h0 + dh * Math.min(1, f * 1.6);
+      feats.push({type: "Feature", properties: {id: d.id, state: d.state, heading: d.h}, geometry: {type: "Point", coordinates: [d.x, d.y]}});
+    });
+    map.getSource("cars").setData({type: "FeatureCollection", features: feats});
+    const rs = map.getSource("riders");
+    if (rs) rs.setData({type: "FeatureCollection", features: riders.map(r => ({type: "Feature", properties: {p: ((now / 1500) + r.id * .37) % 1}, geometry: {type: "Point", coordinates: [r.lon, r.lat]}}))});
+  }
+  if (orbit) map.setBearing(map.getBearing() + .045);
+  requestAnimationFrame(frame);
+}
+
+function buildLegend() {
+  $("legend").innerHTML = Object.keys(STATES).map(k => `<div>${carSVG(stateColor(k))}${STATES[k][0]}</div>`).join("") + `<div><i class="rider-dot"></i>Waiting rider</div>`;
+}
+function drawUI(s) {
   const m = s.metrics, n = s.vehicles.length, cnt = k => s.vehicles.filter(v => v.state === k).length;
-  const hh = Math.floor(7 + m.t_s/3600) % 24, mm = Math.floor((m.t_s % 3600) / 60);
-  $("clock").textContent = `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`;
+  const hh = Math.floor(7 + m.t_s / 3600) % 24, mm = Math.floor((m.t_s % 3600) / 60);
+  $("clock").textContent = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
   const tiles = [
     ["Fleet size", n, "--acc"], ["Available", m.fleet_available, "--idle"], ["Idle", cnt("idle") + cnt("reposition"), "--idle"],
     ["To pickup", cnt("to_pickup"), "--pickup"], ["Riding", cnt("riding"), "--riding"], ["Down / service", cnt("down") + cnt("service"), "--down"],
-    ["Riders waiting", m.pending, "--rider"], ["Avg wait", Math.round(m.avg_wait_s) + "s", "--rider"], ["Utilization", Math.round(m.utilization*100) + "%", "--riding"],
+    ["Riders waiting", m.pending, "--rider"], ["Avg wait", Math.round(m.avg_wait_s) + "s", "--rider"], ["Utilization", Math.round(m.utilization * 100) + "%", "--riding"],
   ];
   $("strip").innerHTML = tiles.map(([l, v, c]) => `<div class="stat" style="--c:var(${c})"><b>${v}</b><span>${l}</span></div>`).join("");
   $("perf").innerHTML = [["P90 wait", m.p90_wait_s + "s"], ["Deadhead", m.deadhead_pct + "%"], ["Served", m.served], ["Abandoned", m.abandoned],
@@ -247,18 +349,60 @@ function draw(s, force) {
   $("events").innerHTML = s.events.length ? s.events.slice().reverse().join("<br>") : "No events yet.";
 }
 
+/* ================= api / lifecycle ================= */
+let playing = true, busy = false;
+async function api(path, opts) {
+  const r = await fetch(path, opts), j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.statusText);
+  return j;
+}
+function geoBounds(fc) {
+  const b = new maplibregl.LngLatBounds();
+  fc.features.forEach(f => f.geometry.coordinates.forEach(c => b.extend(c))); return b;
+}
+async function init() {
+  const cfg = await api("/api/config");
+  $("city").innerHTML = cfg.cities.map(c => `<option value="${c.key}">${c.label}</option>`).join("");
+  $("city").value = cfg.default_city;
+  $("dispatch").innerHTML = cfg.dispatch.map(d => `<option>${d}</option>`).join("");
+  $("maint").innerHTML = cfg.maintenance.map(d => `<option>${d}</option>`).join("");
+  $("theme").innerHTML = theme === "dark" ? SUN : MOON; buildLegend();
+  if (!map.loaded()) await new Promise(r => map.once("load", r));
+  await doReset(); loop(); requestAnimationFrame(frame);
+}
+async function doReset() {
+  const btn = $("reset"), info = $("cityInfo"), real = $("city").value !== "grid";
+  const q = new URLSearchParams({city: $("city").value, dispatch: $("dispatch").value, maintenance: $("maint").value, n_vehicles: $("nveh").value, demand_per_min: $("dem").value});
+  btn.disabled = true; btn.textContent = real ? "Loading roads… (first time can take 30s)" : "Loading…";
+  playing = false;
+  try {
+    const r = await api("/api/reset?" + q, {method: "POST"});
+    info.style.color = ""; info.textContent = `${r.city.nodes.toLocaleString()} intersections · ${r.city.edges.toLocaleString()} road segments`;
+    realCity = real; disp.clear(); riders = []; routesFC = {type: "FeatureCollection", features: []};
+    roadsGeo = await api("/api/graph"); bounds = geoBounds(roadsGeo);
+    await applyStyle();
+    set3dQuiet(real);
+    map.fitBounds(bounds, {padding: 60, pitch: real ? 58 : 0, bearing: real ? -22 : 0, duration: 1800, maxZoom: 17});
+    ingest(await api("/api/state"));
+  } catch (e) {
+    info.style.color = css("--down"); info.textContent = e.message.length > 170 ? e.message.slice(0, 170) + "…" : e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "Reset & apply"; playing = $("play").textContent === "Pause";
+  }
+}
+function set3dQuiet(on) { tilt3d = on; $("b3d").classList.toggle("on", on); }
 async function loop() {
   while (true) {
     if (playing && !busy) {
       busy = true;
-      try { draw(await api("/api/step?seconds=" + (+$("speed").value / 2), {method:"POST"})); } catch (e) {} finally { busy = false; }
+      try { ingest(await api("/api/step?seconds=" + (+$("speed").value * 0.25), {method: "POST"})); } catch (e) {} finally { busy = false; }
     }
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 220));
   }
 }
 
 $("reset").onclick = doReset;
-$("city").onchange = doReset;  // picking a city loads it right away
+$("city").onchange = doReset;
 $("play").onclick = () => { playing = !playing; $("play").textContent = playing ? "Pause" : "Play"; };
 $("cmp").onclick = async () => {
   $("cmpOut").textContent = "Running…";
