@@ -9,12 +9,12 @@
   :root {
     --bg:#0e1217; --panel:#161c24; --card:#1b232d; --line:#2a3441; --fg:#e8edf3; --mut:#8896a8;
     --acc:#4cc2ff; --acc-fg:#04121c; --shadow:0 1px 2px #0006;
-    --idle:#4cc2ff; --pickup:#f5c542; --riding:#46d38a; --repo:#b48cff; --service:#7d8a9a; --down:#ff5d5d; --rider:#ff9f43;
+    --idle:#4cc2ff; --pickup:#f5c542; --riding:#46d38a; --repo:#b48cff; --service:#7d8a9a; --down:#ff5d5d; --rider:#ff9f43; --tocharge:#2dd4bf; --charging:#a3e635;
   }
   :root[data-theme="light"] {
     --bg:#f3f5f8; --panel:#ffffff; --card:#f6f8fb; --line:#dde3ea; --fg:#18212b; --mut:#5f6f82;
     --acc:#0a7cff; --acc-fg:#ffffff; --shadow:0 1px 2px #0002;
-    --idle:#1c8fe0; --pickup:#e0a500; --riding:#1fa463; --repo:#8a5cf0; --service:#8794a4; --down:#e5393b; --rider:#f2780c;
+    --idle:#1c8fe0; --pickup:#e0a500; --riding:#1fa463; --repo:#8a5cf0; --service:#8794a4; --down:#e5393b; --rider:#f2780c; --tocharge:#0d9488; --charging:#65a30d;
   }
   * { box-sizing:border-box; }
   html,body { height:100%; }
@@ -31,7 +31,7 @@
   .iconbtn:hover { border-color:var(--acc); }
   .iconbtn svg { width:18px; height:18px; }
 
-  #strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:10px; padding:12px 18px; background:var(--bg); }
+  #strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; padding:12px 18px; background:var(--bg); }
   .stat { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:9px 12px; box-shadow:var(--shadow); position:relative; overflow:hidden; }
   .stat::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--c,var(--line)); }
   .stat b { display:block; font-size:22px; line-height:1.1; font-variant-numeric:tabular-nums; }
@@ -62,6 +62,32 @@
   th { color:var(--mut); font-weight:600; } th:first-child,td:first-child { text-align:left; }
   td small { color:var(--mut); }
   tr.best td { background:color-mix(in srgb,var(--riding) 14%,transparent); }
+
+  .stat em { display:block; font-style:normal; font-size:11px; color:var(--mut); margin-top:2px; }
+  .stat.wide { grid-column:span 2; }
+  .stat.wide .top { display:flex; align-items:baseline; gap:8px; } .stat.wide .top span { text-transform:none; letter-spacing:0; font-size:13px; }
+  .seg { display:flex; height:8px; border-radius:4px; overflow:hidden; background:var(--line); margin:8px 0 7px; }
+  .seg i { display:block; height:100%; transition:width .4s; }
+  .pills { display:flex; flex-wrap:wrap; gap:3px 12px; font-size:11px; color:var(--mut); }
+  .stat .pills span { text-transform:none; letter-spacing:0; font-size:11px; }
+  .pills b { color:var(--fg); font-size:11px; display:inline; margin-right:3px; }
+  .pills i { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
+  .fleet { max-height:250px; overflow:auto; margin:0 -4px; }
+  .frow { display:grid; grid-template-columns:10px 1fr 58px 40px; gap:8px; align-items:center; padding:5px 4px; border-radius:6px; cursor:pointer; font-size:12px; }
+  .frow:hover { background:var(--card); }
+  .frow small { color:var(--mut); }
+  .frow .pct { text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
+  .dot { width:9px; height:9px; border-radius:50%; }
+  .bat { height:6px; border-radius:3px; background:var(--line); overflow:hidden; }
+  .bat i { display:block; height:100%; border-radius:3px; }
+  .srow { display:flex; align-items:center; gap:8px; padding:6px 4px; border-radius:6px; cursor:pointer; font-size:12px; }
+  .srow:hover { background:var(--card); }
+  .srow .plugs { display:flex; gap:3px; margin-left:auto; }
+  .srow .plugs i { width:9px; height:14px; border-radius:2px; border:1.5px solid var(--charging); }
+  .srow .plugs i.on { background:var(--charging); }
+  .station { display:flex; align-items:center; gap:5px; padding:4px 9px 4px 6px; border-radius:999px; background:var(--charging); color:#0f1a02; font:700 12px system-ui;
+             border:2px solid #fff; box-shadow:0 2px 8px #0007; cursor:pointer; white-space:nowrap; }
+  .station svg { width:14px; height:14px; } .station.full { background:#ffb020; }
 
   /* map overlay controls */
   .mapctl { position:absolute; left:12px; top:12px; z-index:3; display:flex; gap:8px; flex-wrap:wrap; }
@@ -113,6 +139,13 @@
       <select id="speed" style="margin-top:10px"><option value="10">10x</option><option value="30" selected>30x</option><option value="90">90x</option></select>
     </div>
 
+    <h2>Charging stations</h2>
+    <div id="stations"><div style="font-size:12px;color:var(--mut)">Loading…</div></div>
+
+    <h2>Robotaxis <span id="fleetN" style="font-weight:500"></span></h2>
+    <div style="font-size:11px;color:var(--mut);margin:-4px 0 6px">Lowest battery first · click to fly to a car</div>
+    <div class="fleet" id="fleet"></div>
+
     <h2>Performance</h2>
     <div class="mini" id="perf"></div>
 
@@ -147,9 +180,10 @@
 <script src="/static/vendor/maplibre-gl.js"></script>
 <script>
 const STATES = {
-  idle:["Idle","--idle"], to_pickup:["To pickup","--pickup"], riding:["Riding","--riding"],
-  reposition:["Repositioning","--repo"], service:["In service","--service"], down:["Failed","--down"]
+  riding:["With passenger","--riding"], to_pickup:["Heading to rider","--pickup"], idle:["Available","--idle"], reposition:["Repositioning","--repo"],
+  to_charger:["Going to charge","--tocharge"], charging:["Charging","--charging"], service:["Maintenance","--service"], down:["Broken down","--down"]
 };
+const BOLT = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>`;
 const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";   // free vector map, no API key
 const $ = id => document.getElementById(id);
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -296,7 +330,9 @@ function addOverlay() {
 map.on("mousemove", "cars", e => {
   const f = e.features[0]; if (!f) return; const v = vehicleInfo.get(f.properties.id);
   map.getCanvas().style.cursor = "pointer"; if (!v) return;
-  popup.setLngLat(e.lngLat).setHTML(`<b>Car #${v.id}</b> · ${STATES[v.state][0]}<br>${v.km} km since service · wear ${Math.round(v.health * 100)}%`).addTo(map);
+  const st = v.station != null ? stationsById.get(v.station) : null;
+  const where = v.state === "charging" ? (v.plugged ? `Charging at ${st ? st.name : "station"}` : `Waiting for a plug at ${st ? st.name : "station"}`) : v.state === "to_charger" ? `Heading to ${st ? st.name : "a charger"}` : STATES[v.state][0];
+  popup.setLngLat(e.lngLat).setHTML(`<b>Robotaxi #${v.id}</b> · ${where}<br>Battery <b>${v.soc}%</b><div class="bat" style="margin:3px 0 4px;width:120px"><i style="width:${v.soc}%;background:${batColor(v.soc)}"></i></div>${v.km} km since service · wear ${Math.round(v.health * 100)}%`).addTo(map);
 });
 map.on("mouseleave", "cars", () => { map.getCanvas().style.cursor = ""; popup.remove(); });
 map.on("dragstart", () => { if (orbit) setOrbit(false); });
@@ -350,6 +386,7 @@ let lastPoll = performance.now(), pollDur = 300, riders = [], routesFC = {type: 
 function ingest(s) {
   const now = performance.now(); pollDur = Math.max(120, Math.min(900, now - lastPoll)); lastPoll = now; last = s;
   vehicleInfo = new Map(s.vehicles.map(v => [v.id, v]));
+  updateStations(s.stations || []);
   const seen = new Set();
   s.vehicles.forEach(v => {
     seen.add(v.id); let d = disp.get(v.id);
@@ -382,20 +419,64 @@ function frame(now) {
 function buildLegend() {
   $("legend").innerHTML = Object.keys(STATES).map(k => `<div>${carSVG(stateColor(k))}${STATES[k][0]}</div>`).join("") + `<div><i class="rider-dot"></i>Waiting rider</div>`;
 }
+const batColor = p => p < 30 ? "#ff5d5d" : p < 50 ? "#f5b942" : "#46d38a";
+const stationsById = new Map(), stationMarkers = new Map();
+function clearStations() { stationMarkers.forEach(o => o.marker.remove()); stationMarkers.clear(); stationsById.clear(); $("stations").innerHTML = ""; }
+function updateStations(list) {
+  list.forEach(st => {
+    stationsById.set(st.id, st);
+    let o = stationMarkers.get(st.id);
+    if (!o) {
+      const el = document.createElement("div"); el.className = "station";
+      el.onclick = () => { map.flyTo({center: [st.lon, st.lat], zoom: 17.5, pitch: 55, duration: 1800}); };
+      o = {el, marker: new maplibregl.Marker({element: el}).setLngLat([st.lon, st.lat]).addTo(map)}; stationMarkers.set(st.id, o);
+    }
+    o.el.innerHTML = `${BOLT}<span>${st.in_use}/${st.plugs}</span>`;
+    o.el.classList.toggle("full", st.in_use >= st.plugs);
+    o.el.title = `${st.name}: ${st.in_use} of ${st.plugs} plugs in use` + (st.queue ? `, ${st.queue} waiting` : "");
+  });
+  $("stations").innerHTML = list.map(st => `<div class="srow" data-s="${st.id}"><span style="color:var(--charging)">${BOLT.replace("<svg", '<svg width="14" height="14"')}</span><b>${st.name}</b>
+    <small style="color:var(--mut)">${st.in_use}/${st.plugs} in use${st.queue ? ` · ${st.queue} waiting` : ""}</small>
+    <span class="plugs">${Array.from({length: st.plugs}, (_, i) => `<i class="${i < st.in_use ? "on" : ""}"></i>`).join("")}</span></div>`).join("");
+  $("stations").querySelectorAll(".srow").forEach(r => r.onclick = () => { const st = stationsById.get(+r.dataset.s); map.flyTo({center: [st.lon, st.lat], zoom: 17.5, pitch: 55, duration: 1800}); });
+}
+let lastList = 0;
+function renderFleet(s, force) {
+  const now = performance.now(); if (!force && now - lastList < 1200) return; lastList = now;
+  const rows = s.vehicles.slice().sort((a, b) => a.soc - b.soc || a.id - b.id);
+  $("fleetN").textContent = `(${rows.length})`;
+  $("fleet").innerHTML = rows.map(v => {
+    const label = v.state === "charging" ? (v.plugged ? "Charging" : "Waiting for plug") : STATES[v.state][0];
+    return `<div class="frow" data-id="${v.id}"><span class="dot" style="background:${stateColor(v.state)}"></span>
+      <span><b>#${v.id}</b> <small>${label}</small></span>
+      <span class="bat"><i style="width:${v.soc}%;background:${v.state === "charging" && v.plugged ? stateColor("charging") : batColor(v.soc)}"></i></span>
+      <span class="pct">${v.state === "charging" && v.plugged ? "⚡" : ""}${v.soc}%</span></div>`;
+  }).join("");
+  $("fleet").querySelectorAll(".frow").forEach(r => r.onclick = () => {
+    const d = disp.get(+r.dataset.id); if (!d) return; if (!tilt3d) set3d(true, false);
+    map.flyTo({center: [d.x1, d.y1], zoom: 17.2, pitch: 60, bearing: d.h1, duration: 1800, essential: true});
+  });
+}
 function drawUI(s) {
   const m = s.metrics, n = s.vehicles.length, cnt = k => s.vehicles.filter(v => v.state === k).length;
   const hh = Math.floor(7 + m.t_s / 3600) % 24, mm = Math.floor((m.t_s % 3600) / 60);
   $("clock").textContent = `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
-  const tiles = [
-    ["Fleet size", n, "--acc"], ["Available", m.fleet_available, "--idle"], ["Idle", cnt("idle") + cnt("reposition"), "--idle"],
-    ["To pickup", cnt("to_pickup"), "--pickup"], ["Riding", cnt("riding"), "--riding"], ["Down / service", cnt("down") + cnt("service"), "--down"],
-    ["Riders waiting", m.pending, "--rider"], ["Avg wait", Math.round(m.avg_wait_s) + "s", "--rider"], ["Utilization", Math.round(m.utilization * 100) + "%", "--riding"],
-  ];
-  $("strip").innerHTML = tiles.map(([l, v, c]) => `<div class="stat" style="--c:var(${c})"><b>${v}</b><span>${l}</span></div>`).join("");
+  const order = Object.keys(STATES), counts = order.map(k => [k, cnt(k)]);
+  const seg = counts.map(([k, c]) => `<i style="width:${100 * c / n}%;background:${stateColor(k)}" title="${STATES[k][0]}: ${c}"></i>`).join("");
+  const pills = counts.filter(([, c]) => c).map(([k, c]) => `<span><i style="background:${stateColor(k)}"></i><b>${c}</b>${STATES[k][0]}</span>`).join("");
+  const stat = (label, val, sub, c) => `<div class="stat" style="--c:var(${c})"><b>${val}</b><span>${label}</span><em>${sub}</em></div>`;
+  $("strip").innerHTML =
+    `<div class="stat wide" style="--c:var(--acc)"><div class="top"><b>${n}</b><span>robotaxis in fleet</span></div><div class="seg">${seg}</div><div class="pills">${pills}</div></div>` +
+    stat("Charging now", m.charging, `of ${m.plugs_total} plugs` + (m.queued ? ` · ${m.queued} waiting` : "") + (m.to_charger ? ` · ${m.to_charger} on the way` : ""), "--charging") +
+    stat("Average battery", Math.round(m.avg_soc) + "%", `lowest car ${Math.round(m.min_soc)}%`, m.min_soc < 25 ? "--down" : "--riding") +
+    stat("Riders waiting", m.pending, `avg wait ${Math.round(m.avg_wait_s)}s`, "--rider") +
+    stat("Utilization", Math.round(m.utilization * 100) + "%", `${m.served} trips done`, "--riding");
+  renderFleet(s, false);
   $("perf").innerHTML = [["P90 wait", m.p90_wait_s + "s"], ["Deadhead", m.deadhead_pct + "%"], ["Served", m.served], ["Abandoned", m.abandoned],
-    ["Failures", m.failures], ["Planned services", m.planned_services], ["Stranded riders", m.stranded_riders]].map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join("");
+    ["Charge sessions", m.charge_sessions], ["Failures", m.failures], ["Planned services", m.planned_services], ["Stranded riders", m.stranded_riders]].map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join("");
   $("events").innerHTML = s.events.length ? s.events.slice().reverse().join("<br>") : "No events yet.";
 }
+
 
 /* ================= api / lifecycle ================= */
 let playing = true, busy = false;
@@ -426,7 +507,7 @@ async function doReset() {
   try {
     const r = await api("/api/reset?" + q, {method: "POST"});
     info.style.color = ""; info.textContent = `${r.city.nodes.toLocaleString()} intersections · ${r.city.edges.toLocaleString()} road segments`;
-    realCity = real; $("bsat").style.display = real ? "" : "none"; $("bsat").classList.toggle("on", satellite); disp.clear(); riders = []; routesFC = {type: "FeatureCollection", features: []};
+    clearStations(); realCity = real; $("bsat").style.display = real ? "" : "none"; $("bsat").classList.toggle("on", satellite); disp.clear(); riders = []; routesFC = {type: "FeatureCollection", features: []};
     roadsGeo = await api("/api/graph"); bounds = geoBounds(roadsGeo);
     await applyStyle();
     set3dQuiet(real);

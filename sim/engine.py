@@ -19,8 +19,8 @@ from .city import City, get_city
 DISPATCH = ("nearest", "batch", "predictive")
 MAINT = ("reactive", "predictive")
 
-IDLE, TO_PICKUP, RIDING, REPOSITION, SERVICE, DOWN = (
-    "idle", "to_pickup", "riding", "reposition", "service", "down",
+IDLE, TO_PICKUP, RIDING, REPOSITION, SERVICE, DOWN, TO_CHARGER, CHARGING = (
+    "idle", "to_pickup", "riding", "reposition", "service", "down", "to_charger", "charging",
 )
 MAX_WAIT_S = 600.0
 BATCH_EVERY_S = 10.0
@@ -42,6 +42,14 @@ class Config:
     health_noise: float = 0.08
     service_threshold: float = 0.6
     start_hour: float = 7.0
+    # battery / charging
+    battery_range_km: float = 90.0   # full-charge range
+    charge_below: float = 30.0       # idle cars below this % go charge
+    charge_to: float = 90.0          # unplug at this %
+    charge_minutes: float = 45.0     # 0 -> 100% at a DC fast charger
+    start_soc_min: float = 28.0      # starting battery is random in [this, 100]
+    n_stations: int = 0              # 0 = auto
+    plugs_per_station: int = 0       # 0 = auto
 
 
 @dataclass
@@ -63,6 +71,20 @@ class Vehicle:
     failures: int = 0
     planned_services: int = 0
     heading: float = 0.0  # degrees, 0 = north, clockwise
+    soc: float = 100.0    # battery %
+    station: Optional[int] = None
+    plugged: bool = False
+    charges: int = 0
+
+
+@dataclass
+class Station:
+    id: int
+    name: str
+    node: tuple
+    plugs: int
+    occupied: list = field(default_factory=list)  # vehicle ids on a plug
+    queue: list = field(default_factory=list)     # vehicle ids waiting
 
 
 @dataclass
@@ -95,7 +117,9 @@ class Sim:
         self.pending: list[Request] = []
         self.done: list[Request] = []
         self.abandoned = 0
+        self.charge_sessions = 0
         self.vehicles = [self._new_vehicle(i) for i in range(self.cfg.n_vehicles)]
+        self.stations = self._place_stations()
         self._last_batch = -1e9
         self.events: list[str] = []
 
@@ -103,7 +127,61 @@ class Sim:
     def _new_vehicle(self, i: int) -> Vehicle:
         v = Vehicle(id=i, node=self.rng.choice(self.nodes))
         v.fail_at_km = self._draw_failure_km()
+        v.soc = self.rng.uniform(self.cfg.start_soc_min, 100.0)
         return v
+
+    # ---------------- charging ----------------
+    def _place_stations(self) -> list:
+        cfg = self.cfg
+        n = cfg.n_stations or max(2, math.ceil(cfg.n_vehicles / 8))
+        plugs = cfg.plugs_per_station or math.ceil(0.25 * cfg.n_vehicles / n) + 1
+        maxw = max(self.w.values())
+        chosen = [self.depot]
+        while len(chosen) < n:  # spread out, biased toward where demand is
+            chosen.append(max(self.nodes, key=lambda k: min(self.city.straight_m(k, c) for c in chosen) * (0.4 + self.w[k] / maxw)))
+        return [Station(i, f"Charger {chr(65 + i % 26)}", node, plugs) for i, node in enumerate(chosen)]
+
+    def _pick_station(self, v: Vehicle) -> Station:
+        def score(st: Station) -> float:
+            backlog = max(0, len(st.occupied) + len(st.queue) - st.plugs + 1)
+            return self._eta(v, st.node) + backlog * 600.0
+        return min(self.stations, key=score)
+
+    def _charge_logic(self) -> None:
+        for v in self.vehicles:
+            if v.state in (IDLE, REPOSITION) and v.request is None and v.soc < self.cfg.charge_below:
+                st = self._pick_station(v)
+                v.station = st.id
+                v.state = TO_CHARGER
+                if v.node == st.node and not v.route:
+                    self._arrive(v)
+                else:
+                    self._assign_route(v, st.node)
+
+    def _arrive(self, v: Vehicle) -> None:
+        st = self.stations[v.station]
+        v.heading = 0.0
+        v.state = CHARGING
+        if len(st.occupied) < st.plugs:
+            st.occupied.append(v.id)
+            v.plugged = True
+            self.events.append(f"t={int(self.t)} car {v.id} plugged in at {st.name} ({round(v.soc)}%)")
+        else:
+            st.queue.append(v.id)
+            v.plugged = False
+
+    def _release(self, v: Vehicle) -> None:
+        st = self.stations[v.station]
+        st.occupied.remove(v.id)
+        v.plugged, v.station, v.state = False, None, IDLE
+        v.charges += 1
+        self.charge_sessions += 1
+        self.events.append(f"t={int(self.t)} car {v.id} finished charging ({round(v.soc)}%)")
+        while st.queue and len(st.occupied) < st.plugs:
+            u = self.vehicles[st.queue.pop(0)]
+            st.occupied.append(u.id)
+            u.plugged = True
+            self.events.append(f"t={int(self.t)} car {u.id} plugged in at {st.name} ({round(u.soc)}%)")
 
     def _draw_failure_km(self) -> float:
         return self.cfg.weibull_scale_km * self.np.weibull(self.cfg.weibull_shape)
@@ -137,6 +215,10 @@ class Sim:
 
     def position(self, v: Vehicle) -> tuple[float, float]:
         a = self.g.nodes[v.node]
+        if v.state == CHARGING and v.station is not None:  # park neatly in a grid around the charger
+            st = self.stations[v.station]
+            idx = st.occupied.index(v.id) if v.plugged else st.plugs + st.queue.index(v.id)
+            return a["lat"] + (idx // 3) * 0.00005, a["lon"] + (idx % 3 - 1) * 0.00006
         if v.route and v.leg_total > 0:
             b = self.g.nodes[v.route[0]]
             f = 1.0 - v.leg_left / v.leg_total
@@ -273,8 +355,9 @@ class Sim:
                 v.km = 0.0
                 v.fail_at_km = self._draw_failure_km()
 
-    def _fail(self, v: Vehicle) -> None:
+    def _fail(self, v: Vehicle, reason: str = "FAILED") -> None:
         v.failures += 1
+        v.station = None
         v.state = DOWN
         v.timer = max(120.0, self.np.lognormal(math.log(self.cfg.repair_mean_s), 0.4))
         r = v.request
@@ -287,7 +370,7 @@ class Sim:
             v.request = None
         v.route = []
         v.leg_left = v.leg_total = 0
-        self.events.append(f"t={int(self.t)} vehicle {v.id} FAILED")
+        self.events.append(f"t={int(self.t)} car {v.id} {reason}")
 
     # ---------------- stepping ----------------
     def _move(self, v: Vehicle, dt: float) -> None:
@@ -301,6 +384,7 @@ class Sim:
             dist = self._edge_len(v.node, v.route[0]) * frac
             v.odometer_m += dist
             v.km += dist / 1000.0
+            v.soc -= dist / 1000.0 * 100.0 / self.cfg.battery_range_km
             if v.state == RIDING:
                 v.revenue_m += dist
             v.leg_left -= use
@@ -308,6 +392,10 @@ class Sim:
             if v.leg_left <= 1e-9:
                 v.node = v.route.pop(0)
                 v.leg_left = v.leg_total = 0.0
+            if v.soc <= 0:
+                v.soc = 0.0
+                self._fail(v, "ran out of charge")
+                return
             if v.km >= v.fail_at_km:
                 self._fail(v)
                 return
@@ -325,6 +413,7 @@ class Sim:
                 keep.append(r)
         self.pending = keep
 
+        self._charge_logic()
         if cfg.dispatch == "nearest":
             self._dispatch_nearest()
         else:
@@ -334,6 +423,7 @@ class Sim:
         if cfg.maintenance == "predictive" and int(self.t) % 20 == 0:
             self._predictive_maintenance()
 
+        rate = 100.0 / (cfg.charge_minutes * 60.0)  # % per second on a plug
         for v in self.vehicles:
             if v.state in (SERVICE, DOWN):
                 v.timer -= cfg.dt
@@ -341,7 +431,14 @@ class Sim:
                     if v.state == DOWN:
                         v.km = 0.0
                         v.fail_at_km = self._draw_failure_km()
+                        v.soc = max(v.soc, 40.0)  # tow / roadside charge
                     v.state = IDLE
+                continue
+            if v.state == CHARGING:
+                if v.plugged:
+                    v.soc = min(100.0, v.soc + rate * cfg.dt)
+                    if v.soc >= cfg.charge_to:
+                        self._release(v)
                 continue
             if v.state in (RIDING, TO_PICKUP):
                 v.busy_s += cfg.dt
@@ -360,6 +457,8 @@ class Sim:
                     v.state = IDLE
                 elif v.state == REPOSITION:
                     v.state = IDLE
+                elif v.state == TO_CHARGER:
+                    self._arrive(v)
         self.t += cfg.dt
 
     def run(self, seconds: float) -> "Sim":
@@ -390,7 +489,14 @@ class Sim:
             "failures": sum(v.failures for v in self.vehicles),
             "planned_services": sum(v.planned_services for v in self.vehicles),
             "stranded_riders": sum(r.requeued for r in self.done) + sum(r.requeued for r in self.pending),
-            "fleet_available": sum(1 for v in self.vehicles if v.state not in (DOWN, SERVICE)),
+            "fleet_available": sum(1 for v in self.vehicles if v.state not in (DOWN, SERVICE, CHARGING, TO_CHARGER)),
+            "charging": sum(1 for v in self.vehicles if v.state == CHARGING and v.plugged),
+            "queued": sum(1 for v in self.vehicles if v.state == CHARGING and not v.plugged),
+            "to_charger": sum(1 for v in self.vehicles if v.state == TO_CHARGER),
+            "plugs_total": sum(st.plugs for st in self.stations),
+            "avg_soc": round(sum(v.soc for v in self.vehicles) / len(self.vehicles), 1),
+            "min_soc": round(min(v.soc for v in self.vehicles), 1),
+            "charge_sessions": self.charge_sessions,
         }
 
     def snapshot(self) -> dict:
@@ -404,19 +510,22 @@ class Sim:
                 if abs(dx) + abs(dy) > 1e-12:
                     v.heading = math.degrees(math.atan2(dx, dy))
             route = []
-            if v.route and v.state in (TO_PICKUP, RIDING, REPOSITION):
+            if v.route and v.state in (TO_PICKUP, RIDING, REPOSITION, TO_CHARGER):
                 route = [[round(lon, 6), round(lat, 6)]] + [
                     [round(self.g.nodes[n]["lon"], 6), round(self.g.nodes[n]["lat"], 6)] for n in v.route[:30]]
             vs.append({
                 "id": v.id, "lat": lat, "lon": lon, "state": v.state, "heading": round(v.heading, 1), "route": route,
                 "health": round(min(v.km / max(v.fail_at_km, 1e-6), 1.5), 2),
                 "km": round(v.km, 1),
+                "soc": round(v.soc), "plugged": v.plugged, "station": v.station,
             })
         reqs = [{
             "id": r.id, "lat": self.g.nodes[r.origin]["lat"], "lon": self.g.nodes[r.origin]["lon"],
             "wait": round(self.t - r.t),
         } for r in self.pending]
-        return {"t": self.t, "vehicles": vs, "pending": reqs, "metrics": self.metrics(),
+        sts = [{"id": st.id, "name": st.name, "lat": self.g.nodes[st.node]["lat"], "lon": self.g.nodes[st.node]["lon"],
+                "plugs": st.plugs, "in_use": len(st.occupied), "queue": len(st.queue)} for st in self.stations]
+        return {"t": self.t, "vehicles": vs, "pending": reqs, "stations": sts, "metrics": self.metrics(),
                 "events": self.events[-8:]}
 
     def graph_geojson(self) -> dict:
@@ -433,7 +542,7 @@ def compare(hours: float = 2.0, seeds=(1, 2, 3), city: City | None = None, **ove
                 cfg = Config(dispatch=d, maintenance=m, seed=s, **overrides)
                 acc.append(Sim(cfg, city).run(hours * 3600).metrics())
             keys = ["service_rate", "avg_wait_s", "p90_wait_s", "utilization", "deadhead_pct",
-                    "failures", "planned_services", "stranded_riders", "abandoned"]
+                    "failures", "planned_services", "stranded_riders", "abandoned", "charge_sessions", "avg_soc"]
             row = {"dispatch": d, "maintenance": m}
             for k in keys:
                 row[k] = round(float(np.mean([a[k] for a in acc])), 3)

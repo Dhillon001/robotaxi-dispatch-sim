@@ -24,6 +24,7 @@ Add your own in `sim/city.py:CITIES` (centre lat/lon + radius in metres).
 - Dispatch: `nearest` (greedy FIFO), `batch` (10s Hungarian assignment, fairness-weighted), `predictive` (batch + demand-aware repositioning)
 - Maintenance: `reactive` (fix after failure) vs `predictive` (service idle cars when noisy health estimate crosses threshold)
 - Failures: km-since-service vs Weibull draw (shape 2.2). A failure strands the rider (re-queued, wait keeps growing) and takes the car out for a lognormal repair time.
+- Battery: each car drains with distance (90 km range), heads to the nearest/least-busy charger below 30%, queues if plugs are full, unplugs at 90%. Chargers are spread across the city toward demand.
 - Metrics: wait avg/p90, utilization, deadhead %, failures, stranded riders, abandonment (10 min patience)
 
 ## Roadmap
