@@ -7,7 +7,8 @@
 Needs: pip install playwright && playwright install chromium
 
 Real cities need internet (OSM roads on first load + OpenFreeMap vector tiles), so run this
-on your own machine. Every shot is the 3D tilted street map with satellite OFF.
+on your own machine. Every shot is the 3D street map with satellite OFF, tilted ~60 deg and rotated so buildings
+show from the side, in a close and a far view.
 Add --software-gl only on a headless box without a GPU (slower, lower fidelity).
 """
 import argparse
@@ -30,6 +31,19 @@ def load_city(pg, url, city, wait_s, theme="dark"):
     pg.evaluate("if (!tilt3d) set3d(true, false)")
     pg.wait_for_function(TILES, timeout=wait_s * 1000)
     pg.wait_for_timeout(3000)
+
+
+# Side-angle 3D camera: tilted + rotated so the extruded buildings show (street map, no satellite).
+CAMS = {"close": dict(zoom=15.7, pitch=62, bearing=-20), "far": dict(zoom=14.3, pitch=60, bearing=-20)}
+
+
+def cam(pg, name):
+    c = CAMS[name]
+    pg.evaluate(f"""() => {{ const m = map.getCenter(); set3dQuiet(true);
+      map.jumpTo({{center: [m.lng, m.lat], zoom: {c['zoom']}, pitch: {c['pitch']}, bearing: {c['bearing']}}}); }}""")
+    pg.wait_for_timeout(1500)
+    pg.wait_for_function(TILES, timeout=90000)
+    pg.wait_for_timeout(1500)
 
 
 def fast_forward(pg, minutes):
@@ -60,11 +74,18 @@ def main():
         load_city(pg, a.url, a.city, a.load_wait)
         fast_forward(pg, a.sim_minutes)
         pg.wait_for_function(TILES, timeout=a.load_wait * 1000)
+        cam(pg, "close")
         pg.screenshot(path=str(out / "hero-dark-3d.png"))
+        cam(pg, "far")
+        pg.screenshot(path=str(out / "hero-dark-3d-far.png"))
+        cam(pg, "close")
         pg.locator("#strip").screenshot(path=str(out / "fleet-bar.png"))
         pg.locator("aside").screenshot(path=str(out / "sidebar.png"))
         pg.click("#theme"); pg.wait_for_timeout(3000)
+        pg.wait_for_timeout(1500)
         pg.screenshot(path=str(out / "hero-light.png"))
+        cam(pg, "far")
+        pg.screenshot(path=str(out / "hero-light-far.png"))
         pg.click("#b3d"); pg.wait_for_timeout(2000)                             # flatten for a top-down view
         pg.screenshot(path=str(out / "topdown-light.png"))
         pg.click("#cmp"); pg.wait_for_selector("#cmpOut table", timeout=180000)
@@ -75,7 +96,10 @@ def main():
             load_city(pg, a.url, key, a.load_wait)
             fast_forward(pg, 45)
             pg.wait_for_function(TILES, timeout=a.load_wait * 1000)
+            cam(pg, "close")
             pg.screenshot(path=str(out / f"city-{key}.png"))
+            cam(pg, "far")
+            pg.screenshot(path=str(out / f"city-{key}-far.png"))
         b.close()
     print("wrote", sorted(f.name for f in out.glob("*.png")))
 

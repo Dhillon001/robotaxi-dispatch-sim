@@ -5,7 +5,7 @@
 Run a fleet of robotaxis on a real city map (San Francisco, Las Vegas, Austin, Miami, Los Angeles), watch every car drive in 3D, then compare dispatch and maintenance strategies on wait time, utilization, breakdowns and battery health.
 
 <p align="center">
-  <img src="docs/images/hero-dark-3d.png" alt="Robotaxi Dispatch Simulator: 3D view with fleet dashboard, charging stations and route lines" width="100%">
+  <img src="docs/images/sf-3d-close.jpg" alt="Robotaxi fleet driving through 3D downtown San Francisco, street map view" width="100%">
 </p>
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
@@ -64,6 +64,9 @@ Run a fleet of robotaxis on a real city map (San Francisco, Las Vegas, Austin, M
 ## Screenshots
 
 <table>
+  <tr>
+    <td colspan="2"><img src="docs/images/sf-3d-close.jpg" alt="San Francisco 3D street map with robotaxis and charging stations"><br><sub><b>San Francisco, 3D street map.</b> Tilted side angle over real OpenStreetMap roads and extruded buildings, with robotaxis and charger markers.</sub></td>
+  </tr>
   <tr>
     <td width="50%"><img src="docs/images/topdown-light.png" alt="Top-down light theme"><br><sub><b>Top-down, light theme.</b> Cars are colored by state; lines show where each car is heading.</sub></td>
     <td width="50%"><img src="docs/images/hero-light.png" alt="3D view, light theme"><br><sub><b>3D view, light theme.</b> Tilt, rotate and orbit the camera.</sub></td>
