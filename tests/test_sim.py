@@ -46,3 +46,10 @@ def test_snapshot_has_stations_and_soc():
     snap = Sim(Config(n_vehicles=10)).snapshot()
     assert snap["stations"] and "soc" in snap["vehicles"][0]
     assert snap["metrics"]["plugs_total"] >= 2
+
+
+def test_snapshot_reports_route_eta_and_distance():
+    s = Sim(Config(seed=2, n_vehicles=10, demand_per_min=3.0)).run(600)
+    moving = [v for v in s.snapshot()["vehicles"] if v["route"]]
+    assert moving
+    assert all(v["eta_s"] > 0 and v["dist_m"] > 0 for v in moving)

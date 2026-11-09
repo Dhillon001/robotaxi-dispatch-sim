@@ -192,6 +192,18 @@ class Sim:
     def path(self, a, b) -> list:
         return self.city.path(a, b)
 
+    def route_stats(self, v: Vehicle) -> tuple[float, float]:
+        """(seconds, metres) left on the car's current route."""
+        if not v.route:
+            return 0.0, 0.0
+        frac = v.leg_left / v.leg_total if v.leg_total > 0 else 1.0
+        t = self._edge_time(v.node, v.route[0]) * frac
+        d = self._edge_len(v.node, v.route[0]) * frac
+        for a, b in zip(v.route, v.route[1:]):
+            t += self._edge_time(a, b)
+            d += self._edge_len(a, b)
+        return t, d
+
     def sensor_health(self, v: Vehicle) -> float:
         """Noisy 0..1+ health estimate. >1 means 'past typical failure point'."""
         est = v.km / max(self.cfg.weibull_scale_km, 1e-6)
@@ -513,11 +525,13 @@ class Sim:
             if v.route and v.state in (TO_PICKUP, RIDING, REPOSITION, TO_CHARGER):
                 route = [[round(lon, 6), round(lat, 6)]] + [
                     [round(self.g.nodes[n]["lon"], 6), round(self.g.nodes[n]["lat"], 6)] for n in v.route[:30]]
+            eta_s, dist_m = self.route_stats(v)
             vs.append({
                 "id": v.id, "lat": lat, "lon": lon, "state": v.state, "heading": round(v.heading, 1), "route": route,
                 "health": round(min(v.km / max(v.fail_at_km, 1e-6), 1.5), 2),
                 "km": round(v.km, 1),
                 "soc": round(v.soc), "plugged": v.plugged, "station": v.station,
+                "eta_s": round(eta_s), "dist_m": round(dist_m),
             })
         reqs = [{
             "id": r.id, "lat": self.g.nodes[r.origin]["lat"], "lon": self.g.nodes[r.origin]["lon"],
