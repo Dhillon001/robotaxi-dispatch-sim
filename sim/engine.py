@@ -62,6 +62,7 @@ class Vehicle:
     busy_s: float = 0.0
     failures: int = 0
     planned_services: int = 0
+    heading: float = 0.0  # degrees, 0 = north, clockwise
 
 
 @dataclass
@@ -398,8 +399,14 @@ class Sim:
         vs = []
         for v in self.vehicles:
             lat, lon = self.position(v)
+            if v.route:
+                a, b = self.g.nodes[v.node], self.g.nodes[v.route[0]]
+                dx = (b["lon"] - a["lon"]) * math.cos(math.radians(a["lat"]))
+                dy = b["lat"] - a["lat"]
+                if abs(dx) + abs(dy) > 1e-12:
+                    v.heading = math.degrees(math.atan2(dx, dy))
             vs.append({
-                "id": v.id, "lat": lat, "lon": lon, "state": v.state,
+                "id": v.id, "lat": lat, "lon": lon, "state": v.state, "heading": round(v.heading, 1),
                 "health": round(min(v.km / max(v.fail_at_km, 1e-6), 1.5), 2),
                 "km": round(v.km, 1),
             })

@@ -1,68 +1,164 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Robotaxi Dispatch Simulator</title>
 <link rel="stylesheet" href="/static/vendor/leaflet.css">
 <style>
-  :root { --bg:#0f1318; --panel:#171d25; --line:#2a3340; --fg:#e6eaf0; --mut:#8b97a7; --acc:#4cc2ff; }
-  * { box-sizing: border-box; }
-  body { margin:0; font:14px/1.4 system-ui,sans-serif; background:var(--bg); color:var(--fg); display:flex; height:100vh; }
-  #side { width:340px; padding:14px; background:var(--panel); border-right:1px solid var(--line); overflow:auto; }
-  #map { flex:1; background:#0f1318; }
-  h1 { font-size:16px; margin:0 0 10px; }
-  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); margin:16px 0 6px; }
-  label { display:block; margin:6px 0 2px; color:var(--mut); font-size:12px; }
-  select,input,button { width:100%; padding:6px 8px; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; font:inherit; }
-  button { cursor:pointer; margin-top:8px; background:var(--acc); color:#04121c; border:0; font-weight:600; }
-  button.sec { background:var(--bg); color:var(--fg); border:1px solid var(--line); }
+  :root {
+    --bg:#0e1217; --panel:#161c24; --card:#1b232d; --line:#2a3441; --fg:#e8edf3; --mut:#8896a8;
+    --acc:#4cc2ff; --acc-fg:#04121c; --map:#10161d; --road:#24303d; --art:#3a4a5d; --shadow:0 1px 2px #0006;
+    --idle:#4cc2ff; --pickup:#f5c542; --riding:#46d38a; --repo:#b48cff; --service:#7d8a9a; --down:#ff5d5d; --rider:#ff9f43;
+  }
+  :root[data-theme="light"] {
+    --bg:#f3f5f8; --panel:#ffffff; --card:#f6f8fb; --line:#dde3ea; --fg:#18212b; --mut:#5f6f82;
+    --acc:#0a7cff; --acc-fg:#ffffff; --map:#e6ebf1; --road:#c3ccd7; --art:#9eacbc; --shadow:0 1px 2px #0002;
+    --idle:#1c8fe0; --pickup:#e0a500; --riding:#1fa463; --repo:#8a5cf0; --service:#8794a4; --down:#e5393b; --rider:#f2780c;
+  }
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body { margin:0; font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--fg);
+         display:grid; grid-template-rows:auto auto 1fr; transition:background .25s,color .25s; }
+
+  /* ---------- top bar ---------- */
+  header { display:flex; align-items:center; gap:14px; padding:10px 18px; background:var(--panel); border-bottom:1px solid var(--line); }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:16px; letter-spacing:-.01em; }
+  .brand svg { width:26px; height:26px; }
+  .brand small { display:block; font-weight:500; font-size:11px; color:var(--mut); letter-spacing:0; }
+  .spacer { flex:1; }
+  .clock { font:600 18px ui-monospace,SFMono-Regular,Menlo,monospace; padding:4px 12px; border-radius:8px; background:var(--card); border:1px solid var(--line); }
+  .iconbtn { width:36px; height:36px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; display:grid; place-items:center; }
+  .iconbtn:hover { border-color:var(--acc); }
+  .iconbtn svg { width:18px; height:18px; }
+
+  /* ---------- stat strip ---------- */
+  #strip { display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:10px; padding:12px 18px; background:var(--bg); }
+  .stat { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:9px 12px; box-shadow:var(--shadow); position:relative; overflow:hidden; }
+  .stat::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--c,var(--line)); }
+  .stat b { display:block; font-size:22px; line-height:1.1; font-variant-numeric:tabular-nums; }
+  .stat span { font-size:11px; color:var(--mut); text-transform:uppercase; letter-spacing:.05em; }
+
+  /* ---------- main ---------- */
+  main { display:grid; grid-template-columns:320px 1fr; min-height:0; }
+  aside { background:var(--panel); border-right:1px solid var(--line); padding:14px 16px; overflow:auto; }
+  #map { background:var(--map); transition:background .25s; min-height:300px; }
+  h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--mut); margin:18px 0 8px; font-weight:600; }
+  h2:first-child { margin-top:0; }
+  label { display:block; margin:8px 0 3px; color:var(--mut); font-size:12px; }
+  select,input { width:100%; padding:7px 9px; background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:8px; font:inherit; }
+  button.btn { width:100%; padding:8px 10px; margin-top:10px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); font:600 13px inherit; cursor:pointer; }
+  button.btn.pri { background:var(--acc); color:var(--acc-fg); border-color:transparent; }
+  button.btn:hover { filter:brightness(1.06); }
   .row { display:flex; gap:8px; } .row > * { flex:1; }
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-  .kpi { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; }
-  .kpi b { display:block; font-size:18px; } .kpi span { color:var(--mut); font-size:11px; }
-  table { width:100%; border-collapse:collapse; font-size:12px; } td,th { padding:4px; border-bottom:1px solid var(--line); text-align:right; } th:first-child,td:first-child { text-align:left; }
-  .legend i { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; }
-  #events { font:11px ui-monospace,monospace; color:var(--mut); max-height:90px; overflow:auto; }
+  .mini { display:grid; grid-template-columns:1fr auto; row-gap:4px; font-size:13px; }
+  .mini span:nth-child(odd) { color:var(--mut); } .mini span:nth-child(even) { font-weight:600; font-variant-numeric:tabular-nums; text-align:right; }
+  .legend { display:grid; grid-template-columns:1fr 1fr; gap:6px 10px; font-size:12px; }
+  .legend div { display:flex; align-items:center; gap:7px; }
+  .legend svg { width:11px; height:19px; flex:none; }
+  .rider-dot { width:11px; height:11px; border-radius:50%; background:#fff; border:3px solid var(--rider); flex:none; }
+  #events { font:11px ui-monospace,Menlo,monospace; color:var(--mut); max-height:96px; overflow:auto; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  td,th { padding:5px 4px; border-bottom:1px solid var(--line); text-align:right; }
+  th { color:var(--mut); font-weight:600; } th:first-child,td:first-child { text-align:left; }
+  td small { color:var(--mut); }
+  tr.best td { background:color-mix(in srgb,var(--riding) 14%,transparent); }
+
+  /* ---------- map markers ---------- */
+  .car { transition:transform .45s linear; }
+  .car svg { display:block; width:calc(15px * var(--k,1)); height:calc(26px * var(--k,1)); overflow:visible; filter:drop-shadow(0 1px 1.5px #0008); }
+  .car.down svg { animation:blink 1s infinite; }
+  @keyframes blink { 50% { opacity:.35; } }
+  .rider { width:14px; height:14px; border-radius:50%; background:#fff; border:3px solid var(--rider); position:relative; }
+  .rider::after { content:""; position:absolute; inset:-9px; border-radius:50%; border:2px solid var(--rider); opacity:.0; animation:ping 1.6s infinite; }
+  @keyframes ping { 0% { transform:scale(.4); opacity:.8; } 100% { transform:scale(1.2); opacity:0; } }
+  .leaflet-container { font:inherit; }
+  .leaflet-tooltip { background:var(--panel); color:var(--fg); border:1px solid var(--line); box-shadow:var(--shadow); }
+
+  @media (max-width:820px) { main { grid-template-columns:1fr; grid-template-rows:auto 60vh; } aside { border-right:0; border-bottom:1px solid var(--line); } }
 </style>
 </head>
 <body>
-<div id="side">
-  <h1>Robotaxi Dispatch Simulator</h1>
-  <label>Dispatch strategy</label><select id="dispatch"></select>
-  <label>Maintenance policy</label><select id="maint"></select>
-  <div class="row">
-    <div><label>Vehicles</label><input id="nveh" type="number" value="30" min="5" max="120"></div>
-    <div><label>Demand / min</label><input id="dem" type="number" value="3.4" step="0.2" min="0.5"></div>
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 32 32" fill="none"><rect x="1" y="1" width="30" height="30" rx="8" fill="var(--acc)"/><path d="M8 19l2-6a2 2 0 0 1 2-1.4h8a2 2 0 0 1 2 1.4l2 6v4h-2v-1.5H10V23H8v-4Z" fill="var(--acc-fg)"/><circle cx="11.5" cy="18.5" r="1.4" fill="var(--acc)"/><circle cx="20.5" cy="18.5" r="1.4" fill="var(--acc)"/></svg>
+    <div>Robotaxi Dispatch Simulator<small>Fleet dispatch &amp; reliability</small></div>
   </div>
-  <button id="reset">Reset &amp; apply</button>
-  <div class="row"><button class="sec" id="play">Pause</button>
-  <select id="speed"><option value="10">10x</option><option value="30" selected>30x</option><option value="90">90x</option></select></div>
+  <div class="spacer"></div>
+  <div class="clock" id="clock">07:00</div>
+  <button class="iconbtn" id="theme" title="Toggle light / dark" aria-label="Toggle theme"></button>
+</header>
 
-  <h2>Live metrics</h2>
-  <div class="grid" id="kpis"></div>
+<section id="strip"></section>
 
-  <h2>Legend</h2>
-  <div class="legend">
-    <div><i style="background:#4cc2ff"></i>idle &nbsp;<i style="background:#f5c542"></i>to pickup &nbsp;<i style="background:#46d38a"></i>riding</div>
-    <div><i style="background:#b48cff"></i>repositioning &nbsp;<i style="background:#6b7a8c"></i>service &nbsp;<i style="background:#ff5d5d"></i>failed</div>
-    <div><i style="background:#fff;border:2px solid #ff9f43"></i>waiting rider</div>
-  </div>
+<main>
+  <aside>
+    <h2>Simulation</h2>
+    <label>Dispatch strategy</label><select id="dispatch"></select>
+    <label>Maintenance policy</label><select id="maint"></select>
+    <div class="row">
+      <div><label>Vehicles</label><input id="nveh" type="number" value="30" min="5" max="120"></div>
+      <div><label>Demand / min</label><input id="dem" type="number" value="3.4" step="0.2" min="0.5"></div>
+    </div>
+    <button class="btn pri" id="reset">Reset &amp; apply</button>
+    <div class="row">
+      <button class="btn" id="play">Pause</button>
+      <select id="speed" style="margin-top:10px"><option value="10">10x</option><option value="30" selected>30x</option><option value="90">90x</option></select>
+    </div>
 
-  <h2>Events</h2><div id="events"></div>
+    <h2>Performance</h2>
+    <div class="mini" id="perf"></div>
 
-  <h2>Policy comparison</h2>
-  <button class="sec" id="cmp">Run headless comparison (3h x 3 seeds)</button>
-  <div id="cmpOut" style="margin-top:8px"></div>
-</div>
-<div id="map"></div>
+    <h2>Legend</h2>
+    <div class="legend" id="legend"></div>
+
+    <h2>Events</h2><div id="events">No events yet.</div>
+
+    <h2>Policy comparison</h2>
+    <button class="btn" id="cmp" style="margin-top:0">Run headless comparison (3h × 3 seeds)</button>
+    <div id="cmpOut" style="margin-top:10px"></div>
+  </aside>
+  <div id="map"></div>
+</main>
+
 <script src="/static/vendor/leaflet.js"></script>
 <script>
-const COLORS = {idle:"#4cc2ff", to_pickup:"#f5c542", riding:"#46d38a", reposition:"#b48cff", service:"#6b7a8c", down:"#ff5d5d"};
+const STATES = {
+  idle:["Idle","--idle"], to_pickup:["To pickup","--pickup"], riding:["Riding","--riding"],
+  reposition:["Repositioning","--repo"], service:["In service","--service"], down:["Failed","--down"]
+};
 const $ = id => document.getElementById(id);
-const map = L.map("map", {zoomControl:true, preferCanvas:true}).setView([37.5585,-122.2711], 15);
-const vehLayer = L.layerGroup().addTo(map), reqLayer = L.layerGroup().addTo(map);
-let playing = true, busy = false;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const carSVG = c => `<svg viewBox="0 0 22 38"><rect x="1" y="1" width="20" height="36" rx="8" fill="${c}" stroke="#0b0f14" stroke-opacity=".55" stroke-width="1.5"/><path d="M4.5 11.5c0-1.4 1-2.5 2.4-2.8 2.5-.6 5.7-.6 8.2 0 1.4.3 2.4 1.4 2.4 2.8v1.8H4.5z" fill="#0b0f14" fill-opacity=".62"/><rect x="5" y="17" width="12" height="8" rx="2" fill="#fff" fill-opacity=".22"/><path d="M5 30.5h12" stroke="#0b0f14" stroke-opacity=".5" stroke-width="2" stroke-linecap="round"/></svg>`;
+
+/* ---------- theme ---------- */
+const SUN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`;
+const MOON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`;
+let theme = "dark";
+try { theme = localStorage.getItem("theme") || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"); } catch (e) {}
+function applyTheme(t) {
+  theme = t; document.documentElement.dataset.theme = t;
+  $("theme").innerHTML = t === "dark" ? SUN : MOON;
+  try { localStorage.setItem("theme", t); } catch (e) {}
+  if (roads) roads.setStyle(roadStyle);
+  buildLegend(); if (last) draw(last, true);
+}
+$("theme").onclick = () => applyTheme(theme === "dark" ? "light" : "dark");
+
+/* ---------- map ---------- */
+const map = L.map("map", {zoomControl:true, preferCanvas:false, zoomSnap:.25, attributionControl:false}).setView([37.5585,-122.2711], 15.25);
+const reqLayer = L.layerGroup().addTo(map);
+const carLayer = L.layerGroup().addTo(map);
+let roads = null, last = null, playing = true, busy = false;
+const cars = new Map();
+const roadStyle = f => ({color: f.properties.fast ? css("--art") : css("--road"), weight: f.properties.fast ? 5 : 3, lineCap:"round", opacity:1});
+function setScale() { document.getElementById("map").style.setProperty("--k", Math.max(.7, Math.min(2.2, 1 + (map.getZoom() - 15.25) * .45))); }
+map.on("zoomend", setScale); setScale();
+
+function buildLegend() {
+  $("legend").innerHTML = Object.values(STATES).map(([n, v]) => `<div>${carSVG(css(v))}${n}</div>`).join("") +
+    `<div><i class="rider-dot"></i>Waiting rider</div>`;
+}
 
 async function api(path, opts) { const r = await fetch(path, opts); return r.json(); }
 
@@ -70,41 +166,69 @@ async function init() {
   const cfg = await api("/api/config");
   $("dispatch").innerHTML = cfg.dispatch.map(d => `<option>${d}</option>`).join("");
   $("maint").innerHTML = cfg.maintenance.map(d => `<option>${d}</option>`).join("");
-  const g = await api("/api/graph");
-  L.geoJSON(g, {style: f => ({color: f.properties.fast ? "#3b4a5e" : "#27313e", weight: f.properties.fast ? 3 : 1.5})}).addTo(map);
+  roads = L.geoJSON(await api("/api/graph"), {style: roadStyle}).addTo(map);
+  map.fitBounds(roads.getBounds(), {padding:[30,30]});
+  applyTheme(theme);
   await doReset(); loop();
 }
 async function doReset() {
   const q = new URLSearchParams({dispatch:$("dispatch").value, maintenance:$("maint").value, n_vehicles:$("nveh").value, demand_per_min:$("dem").value});
-  await api("/api/reset?" + q, {method:"POST"}); draw(await api("/api/state"));
+  await api("/api/reset?" + q, {method:"POST"});
+  carLayer.clearLayers(); cars.clear(); draw(await api("/api/state"));
 }
-function draw(s) {
-  vehLayer.clearLayers(); reqLayer.clearLayers();
-  s.vehicles.forEach(v => L.circleMarker([v.lat, v.lon], {radius:6, color:"#0008", weight:1, fillColor:COLORS[v.state], fillOpacity:.95})
-      .bindTooltip(`#${v.id} ${v.state} | ${v.km} km since service | wear ${Math.round(v.health*100)}%`).addTo(vehLayer));
-  s.pending.forEach(r => L.circleMarker([r.lat, r.lon], {radius:5, color:"#ff9f43", weight:2, fillColor:"#fff", fillOpacity:1})
-      .bindTooltip(`waiting ${r.wait}s`).addTo(reqLayer));
-  const m = s.metrics, h = Math.floor(7 + m.t_s/3600), mn = Math.floor((m.t_s%3600)/60);
-  const k = [["Clock", `${String(h%24).padStart(2,"0")}:${String(mn).padStart(2,"0")}`], ["Waiting now", m.pending],
-    ["Avg wait", m.avg_wait_s+"s"], ["P90 wait", m.p90_wait_s+"s"], ["Utilization", Math.round(m.utilization*100)+"%"],
-    ["Deadhead", m.deadhead_pct+"%"], ["Served", m.served], ["Abandoned", m.abandoned],
-    ["Failures", m.failures], ["Planned svc", m.planned_services], ["Stranded riders", m.stranded_riders], ["Fleet available", m.fleet_available]];
-  $("kpis").innerHTML = k.map(([a,b]) => `<div class="kpi"><b>${b}</b><span>${a}</span></div>`).join("");
-  $("events").innerHTML = s.events.slice().reverse().join("<br>");
+
+function carIcon(v) {
+  const c = css(STATES[v.state][1]);
+  return L.divIcon({className:"", iconSize:[0,0], html:`<div class="car ${v.state}" style="transform:translate(-50%,-50%) rotate(${v.heading}deg)">${carSVG(c)}</div>`});
 }
+function draw(s, force) {
+  last = s;
+  // cars: update in place so they glide instead of flicker
+  s.vehicles.forEach(v => {
+    let m = cars.get(v.id);
+    const tip = `<b>#${v.id}</b> ${STATES[v.state][0]}<br>${v.km} km since service · wear ${Math.round(v.health*100)}%`;
+    if (!m) { m = L.marker([v.lat, v.lon], {icon:carIcon(v), interactive:true, keyboard:false}).bindTooltip(tip, {direction:"top", offset:[0,-10]}).addTo(carLayer); cars.set(v.id, m); m._st = v.state; m._hd = v.heading; }
+    else {
+      m.setLatLng([v.lat, v.lon]);
+      if (force || m._st !== v.state || Math.abs(m._hd - v.heading) > 1) { m.setIcon(carIcon(v)); m._st = v.state; m._hd = v.heading; }
+      m.setTooltipContent(tip);
+    }
+  });
+  reqLayer.clearLayers();
+  s.pending.forEach(r => L.marker([r.lat, r.lon], {icon:L.divIcon({className:"", iconSize:[0,0], html:`<div class="rider" style="transform:translate(-50%,-50%)"></div>`}), interactive:false}).addTo(reqLayer));
+
+  const m = s.metrics, n = s.vehicles.length, cnt = k => s.vehicles.filter(v => v.state === k).length;
+  const hh = Math.floor(7 + m.t_s/3600) % 24, mm = Math.floor((m.t_s % 3600) / 60);
+  $("clock").textContent = `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`;
+  const tiles = [
+    ["Fleet size", n, "--acc"], ["Available", m.fleet_available, "--idle"], ["Idle", cnt("idle") + cnt("reposition"), "--idle"],
+    ["To pickup", cnt("to_pickup"), "--pickup"], ["Riding", cnt("riding"), "--riding"], ["Down / service", cnt("down") + cnt("service"), "--down"],
+    ["Riders waiting", m.pending, "--rider"], ["Avg wait", Math.round(m.avg_wait_s) + "s", "--rider"], ["Utilization", Math.round(m.utilization*100) + "%", "--riding"],
+  ];
+  $("strip").innerHTML = tiles.map(([l, v, c]) => `<div class="stat" style="--c:var(${c})"><b>${v}</b><span>${l}</span></div>`).join("");
+  $("perf").innerHTML = [["P90 wait", m.p90_wait_s + "s"], ["Deadhead", m.deadhead_pct + "%"], ["Served", m.served], ["Abandoned", m.abandoned],
+    ["Failures", m.failures], ["Planned services", m.planned_services], ["Stranded riders", m.stranded_riders]].map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join("");
+  $("events").innerHTML = s.events.length ? s.events.slice().reverse().join("<br>") : "No events yet.";
+}
+
 async function loop() {
   while (true) {
-    if (playing && !busy) { busy = true; try { draw(await api("/api/step?seconds=" + $("speed").value, {method:"POST"})); } finally { busy = false; } }
-    await new Promise(r => setTimeout(r, 1000));
+    if (playing && !busy) {
+      busy = true;
+      try { draw(await api("/api/step?seconds=" + (+$("speed").value / 2), {method:"POST"})); } catch (e) {} finally { busy = false; }
+    }
+    await new Promise(r => setTimeout(r, 500));
   }
 }
+
 $("reset").onclick = doReset;
 $("play").onclick = () => { playing = !playing; $("play").textContent = playing ? "Pause" : "Play"; };
 $("cmp").onclick = async () => {
-  $("cmpOut").textContent = "Running...";
+  $("cmpOut").textContent = "Running…";
   const rows = await api("/api/compare?hours=3&n_vehicles=" + $("nveh").value + "&demand_per_min=" + $("dem").value);
-  $("cmpOut").innerHTML = "<table><tr><th>policy</th><th>wait</th><th>p90</th><th>dead%</th><th>fails</th></tr>" +
-    rows.map(r => `<tr><td>${r.dispatch}<br><small>${r.maintenance}</small></td><td>${r.avg_wait_s}</td><td>${r.p90_wait_s}</td><td>${r.deadhead_pct}</td><td>${r.failures}</td></tr>`).join("") + "</table>";
+  const best = Math.min(...rows.map(r => r.avg_wait_s));
+  $("cmpOut").innerHTML = "<table><tr><th>Policy</th><th>Wait</th><th>P90</th><th>Dead%</th><th>Fails</th></tr>" +
+    rows.map(r => `<tr class="${r.avg_wait_s === best ? "best" : ""}"><td>${r.dispatch}<br><small>${r.maintenance}</small></td><td>${r.avg_wait_s}s</td><td>${r.p90_wait_s}s</td><td>${r.deadhead_pct}</td><td>${r.failures}</td></tr>`).join("") + "</table>";
 };
 init();
 </script>
