@@ -119,6 +119,12 @@
     <h2>Legend</h2>
     <div class="legend" id="legend"></div>
 
+    <h2>Camera</h2>
+    <div style="font-size:12px;color:var(--mut);line-height:1.55">
+      <b style="color:var(--fg)">Rotate:</b> two-finger twist (Safari, iPad, phone) · <b style="color:var(--fg)">⌥ Option + two-finger swipe</b> sideways (Chrome) · right-click drag<br>
+      <b style="color:var(--fg)">Tilt:</b> ⌥ Option + swipe up/down · or drag the compass button
+    </div>
+
     <h2>Events</h2><div id="events">No events yet.</div>
 
     <h2>Policy comparison</h2>
@@ -294,6 +300,28 @@ map.on("mousemove", "cars", e => {
 });
 map.on("mouseleave", "cars", () => { map.getCanvas().style.cursor = ""; popup.remove(); });
 map.on("dragstart", () => { if (orbit) setOrbit(false); });
+
+/* ---- Apple-Maps-style gestures ---- */
+map.touchZoomRotate.enableRotation();   // phones / tablets: two-finger twist + pinch
+map.touchPitch.enable();                // phones / tablets: two-finger drag up/down to tilt
+{
+  const box = map.getContainer();
+  // Safari trackpad: native two-finger twist + pinch arrive as gesture events
+  let g0 = null;
+  box.addEventListener("gesturestart", e => { e.preventDefault(); g0 = {b: map.getBearing(), z: map.getZoom()}; if (orbit) setOrbit(false); });
+  box.addEventListener("gesturechange", e => {
+    e.preventDefault(); if (!g0) return;
+    map.jumpTo({bearing: g0.b - e.rotation, zoom: g0.z + Math.log2(e.scale || 1)});
+  });
+  box.addEventListener("gestureend", e => { e.preventDefault(); g0 = null; });
+  // Chrome/Firefox can't see a twist, so: hold Option (Alt) + two-finger swipe -> sideways rotates, up/down tilts
+  box.addEventListener("wheel", e => {
+    if (!e.altKey) return;
+    e.preventDefault(); e.stopPropagation(); if (orbit) setOrbit(false);
+    map.jumpTo({bearing: map.getBearing() - e.deltaX * .35, pitch: Math.max(0, Math.min(70, map.getPitch() - e.deltaY * .25))});
+    if (map.getPitch() > 1 && !tilt3d) set3dQuiet(true);
+  }, {passive: false, capture: true});
+}
 
 /* camera controls */
 function set3d(on, animate = true) {
