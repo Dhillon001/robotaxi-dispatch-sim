@@ -189,6 +189,7 @@ async function loadRoads() {
 async function init() {
   const cfg = await api("/api/config");
   $("city").innerHTML = cfg.cities.map(c => `<option value="${c.key}">${c.label}</option>`).join("");
+  $("city").value = cfg.default_city;
   $("dispatch").innerHTML = cfg.dispatch.map(d => `<option>${d}</option>`).join("");
   $("maint").innerHTML = cfg.maintenance.map(d => `<option>${d}</option>`).join("");
   applyTheme(theme);

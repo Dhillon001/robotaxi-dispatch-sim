@@ -10,6 +10,7 @@ from sim.city import CITIES, get_city
 from sim.engine import DISPATCH, MAINT, Config, Sim, compare
 
 STATIC = Path(__file__).parent / "static"
+DEFAULT_CITY = "san_francisco"
 app = FastAPI(title="Robotaxi Dispatch Simulator")
 state: dict = {"sim": Sim(Config())}
 
@@ -17,12 +18,13 @@ state: dict = {"sim": Sim(Config())}
 @app.get("/api/config")
 def get_config():
     return {"dispatch": DISPATCH, "maintenance": MAINT, "current": state["sim"].cfg.__dict__,
-            "cities": [{"key": k, "label": v["label"]} for k, v in CITIES.items()]}
+            "cities": [{"key": k, "label": v["label"]} for k, v in CITIES.items()],
+            "default_city": DEFAULT_CITY}
 
 
 @app.post("/api/reset")
 def reset(dispatch: str = "nearest", maintenance: str = "reactive", n_vehicles: int = 30,
-          demand_per_min: float = 3.4, seed: int = 1, city: str = "grid"):
+          demand_per_min: float = 3.4, seed: int = 1, city: str = DEFAULT_CITY):
     try:
         c = get_city(city)  # first use of a real city downloads OSM roads (cached afterwards)
     except KeyError:
