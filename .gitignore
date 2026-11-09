@@ -2,4 +2,6 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .venv/
-data/osm_cache/
+# downloaded road networks; the San Francisco one is committed so the live demo starts instantly
+data/osm_cache/*
+!data/osm_cache/san_francisco_1600.graphml
