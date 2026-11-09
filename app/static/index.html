@@ -492,18 +492,23 @@ function geoBounds(fc) {
 async function init() {
   const cfg = await api("/api/config");
   $("city").innerHTML = cfg.cities.map(c => `<option value="${c.key}">${c.label}</option>`).join("");
-  $("city").value = cfg.default_city;
+  const want = new URLSearchParams(location.search).get("city");   // e.g. /?city=austin
+  $("city").value = cfg.cities.some(c => c.key === want) ? want : cfg.default_city;
   $("dispatch").innerHTML = cfg.dispatch.map(d => `<option>${d}</option>`).join("");
   $("maint").innerHTML = cfg.maintenance.map(d => `<option>${d}</option>`).join("");
   $("theme").innerHTML = theme === "dark" ? SUN : MOON; buildLegend();
   if (!map.loaded()) await new Promise(r => map.once("load", r));
-  await doReset(); loop(); requestAnimationFrame(frame);
+  requestAnimationFrame(frame); loop();      // start animating right away, even while a city is still loading
+  if (!(await doReset())) {                  // default city couldn't load (e.g. offline): fall back to the instant grid
+    const msg = $("cityInfo").textContent; $("city").value = "grid";
+    if (await doReset()) { $("cityInfo").textContent += "  ·  " + (msg.length > 110 ? msg.slice(0, 110) + "…" : msg); $("cityInfo").style.color = css("--down"); }
+  }
 }
 async function doReset() {
   const btn = $("reset"), info = $("cityInfo"), real = $("city").value !== "grid";
   const q = new URLSearchParams({city: $("city").value, dispatch: $("dispatch").value, maintenance: $("maint").value, n_vehicles: $("nveh").value, demand_per_min: $("dem").value});
   btn.disabled = true; btn.textContent = real ? "Loading roads… (first time can take 30s)" : "Loading…";
-  playing = false;
+  playing = false; let ok = false;
   try {
     const r = await api("/api/reset?" + q, {method: "POST"});
     info.style.color = ""; info.textContent = `${r.city.nodes.toLocaleString()} intersections · ${r.city.edges.toLocaleString()} road segments`;
@@ -513,11 +518,13 @@ async function doReset() {
     set3dQuiet(real);
     map.fitBounds(bounds, {padding: 60, pitch: real ? 58 : 0, bearing: real ? -22 : 0, duration: 1800, maxZoom: 17});
     ingest(await api("/api/state"));
+    ok = true;
   } catch (e) {
     info.style.color = css("--down"); info.textContent = e.message.length > 170 ? e.message.slice(0, 170) + "…" : e.message;
   } finally {
     btn.disabled = false; btn.textContent = "Reset & apply"; playing = $("play").textContent === "Pause";
   }
+  return ok;
 }
 function set3dQuiet(on) { tilt3d = on; $("b3d").classList.toggle("on", on); }
 async function loop() {
@@ -538,7 +545,7 @@ $("cmp").onclick = async () => {
   const rows = await api("/api/compare?hours=3&n_vehicles=" + $("nveh").value + "&demand_per_min=" + $("dem").value);
   const best = Math.min(...rows.map(r => r.avg_wait_s));
   $("cmpOut").innerHTML = "<table><tr><th>Policy</th><th>Wait</th><th>P90</th><th>Dead%</th><th>Fails</th></tr>" +
-    rows.map(r => `<tr class="${r.avg_wait_s === best ? "best" : ""}"><td>${r.dispatch}<br><small>${r.maintenance}</small></td><td>${r.avg_wait_s}s</td><td>${r.p90_wait_s}s</td><td>${r.deadhead_pct}</td><td>${r.failures}</td></tr>`).join("") + "</table>";
+    rows.map(r => `<tr class="${r.avg_wait_s === best ? "best" : ""}"><td>${r.dispatch}<br><small>${r.maintenance}</small></td><td>${Math.round(r.avg_wait_s)}s</td><td>${Math.round(r.p90_wait_s)}s</td><td>${r.deadhead_pct.toFixed(1)}</td><td>${r.failures.toFixed(1)}</td></tr>`).join("") + "</table>";
 };
 init();
 </script>
