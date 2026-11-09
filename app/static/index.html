@@ -61,7 +61,6 @@
 const COLORS = {idle:"#4cc2ff", to_pickup:"#f5c542", riding:"#46d38a", reposition:"#b48cff", service:"#6b7a8c", down:"#ff5d5d"};
 const $ = id => document.getElementById(id);
 const map = L.map("map", {zoomControl:true, preferCanvas:true}).setView([37.5585,-122.2711], 15);
-L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {maxZoom:19, attribution:"&copy; OSM &copy; CARTO"}).addTo(map);
 const vehLayer = L.layerGroup().addTo(map), reqLayer = L.layerGroup().addTo(map);
 let playing = true, busy = false;
 
