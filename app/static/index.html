@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robotaxi Dispatch Simulator</title>
+<link rel="stylesheet" href="/static/vendor/leaflet.css">
+<style>
+  :root { --bg:#0f1318; --panel:#171d25; --line:#2a3340; --fg:#e6eaf0; --mut:#8b97a7; --acc:#4cc2ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.4 system-ui,sans-serif; background:var(--bg); color:var(--fg); display:flex; height:100vh; }
+  #side { width:340px; padding:14px; background:var(--panel); border-right:1px solid var(--line); overflow:auto; }
+  #map { flex:1; }
+  h1 { font-size:16px; margin:0 0 10px; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--mut); margin:16px 0 6px; }
+  label { display:block; margin:6px 0 2px; color:var(--mut); font-size:12px; }
+  select,input,button { width:100%; padding:6px 8px; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; font:inherit; }
+  button { cursor:pointer; margin-top:8px; background:var(--acc); color:#04121c; border:0; font-weight:600; }
+  button.sec { background:var(--bg); color:var(--fg); border:1px solid var(--line); }
+  .row { display:flex; gap:8px; } .row > * { flex:1; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .kpi { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; }
+  .kpi b { display:block; font-size:18px; } .kpi span { color:var(--mut); font-size:11px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; } td,th { padding:4px; border-bottom:1px solid var(--line); text-align:right; } th:first-child,td:first-child { text-align:left; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:4px; }
+  #events { font:11px ui-monospace,monospace; color:var(--mut); max-height:90px; overflow:auto; }
+</style>
+</head>
+<body>
+<div id="side">
+  <h1>Robotaxi Dispatch Simulator</h1>
+  <label>Dispatch strategy</label><select id="dispatch"></select>
+  <label>Maintenance policy</label><select id="maint"></select>
+  <div class="row">
+    <div><label>Vehicles</label><input id="nveh" type="number" value="30" min="5" max="120"></div>
+    <div><label>Demand / min</label><input id="dem" type="number" value="3.4" step="0.2" min="0.5"></div>
+  </div>
+  <button id="reset">Reset &amp; apply</button>
+  <div class="row"><button class="sec" id="play">Pause</button>
+  <select id="speed"><option value="10">10x</option><option value="30" selected>30x</option><option value="90">90x</option></select></div>
+
+  <h2>Live metrics</h2>
+  <div class="grid" id="kpis"></div>
+
+  <h2>Legend</h2>
+  <div class="legend">
+    <div><i style="background:#4cc2ff"></i>idle &nbsp;<i style="background:#f5c542"></i>to pickup &nbsp;<i style="background:#46d38a"></i>riding</div>
+    <div><i style="background:#b48cff"></i>repositioning &nbsp;<i style="background:#6b7a8c"></i>service &nbsp;<i style="background:#ff5d5d"></i>failed</div>
+    <div><i style="background:#fff;border:2px solid #ff9f43"></i>waiting rider</div>
+  </div>
+
+  <h2>Events</h2><div id="events"></div>
+
+  <h2>Policy comparison</h2>
+  <button class="sec" id="cmp">Run headless comparison (3h x 3 seeds)</button>
+  <div id="cmpOut" style="margin-top:8px"></div>
+</div>
+<div id="map"></div>
+<script src="/static/vendor/leaflet.js"></script>
+<script>
+const COLORS = {idle:"#4cc2ff", to_pickup:"#f5c542", riding:"#46d38a", reposition:"#b48cff", service:"#6b7a8c", down:"#ff5d5d"};
+const $ = id => document.getElementById(id);
+const map = L.map("map", {zoomControl:true, preferCanvas:true}).setView([37.5585,-122.2711], 15);
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {maxZoom:19, attribution:"&copy; OSM &copy; CARTO"}).addTo(map);
+const vehLayer = L.layerGroup().addTo(map), reqLayer = L.layerGroup().addTo(map);
+let playing = true, busy = false;
+
+async function api(path, opts) { const r = await fetch(path, opts); return r.json(); }
+
+async function init() {
+  const cfg = await api("/api/config");
+  $("dispatch").innerHTML = cfg.dispatch.map(d => `<option>${d}</option>`).join("");
+  $("maint").innerHTML = cfg.maintenance.map(d => `<option>${d}</option>`).join("");
+  const g = await api("/api/graph");
+  L.geoJSON(g, {style: f => ({color: f.properties.fast ? "#3b4a5e" : "#27313e", weight: f.properties.fast ? 3 : 1.5})}).addTo(map);
+  await doReset(); loop();
+}
+async function doReset() {
+  const q = new URLSearchParams({dispatch:$("dispatch").value, maintenance:$("maint").value, n_vehicles:$("nveh").value, demand_per_min:$("dem").value});
+  await api("/api/reset?" + q, {method:"POST"}); draw(await api("/api/state"));
+}
+function draw(s) {
+  vehLayer.clearLayers(); reqLayer.clearLayers();
+  s.vehicles.forEach(v => L.circleMarker([v.lat, v.lon], {radius:6, color:"#0008", weight:1, fillColor:COLORS[v.state], fillOpacity:.95})
+      .bindTooltip(`#${v.id} ${v.state} | ${v.km} km since service | wear ${Math.round(v.health*100)}%`).addTo(vehLayer));
+  s.pending.forEach(r => L.circleMarker([r.lat, r.lon], {radius:5, color:"#ff9f43", weight:2, fillColor:"#fff", fillOpacity:1})
+      .bindTooltip(`waiting ${r.wait}s`).addTo(reqLayer));
+  const m = s.metrics, h = Math.floor(7 + m.t_s/3600), mn = Math.floor((m.t_s%3600)/60);
+  const k = [["Clock", `${String(h%24).padStart(2,"0")}:${String(mn).padStart(2,"0")}`], ["Waiting now", m.pending],
+    ["Avg wait", m.avg_wait_s+"s"], ["P90 wait", m.p90_wait_s+"s"], ["Utilization", Math.round(m.utilization*100)+"%"],
+    ["Deadhead", m.deadhead_pct+"%"], ["Served", m.served], ["Abandoned", m.abandoned],
+    ["Failures", m.failures], ["Planned svc", m.planned_services], ["Stranded riders", m.stranded_riders], ["Fleet available", m.fleet_available]];
+  $("kpis").innerHTML = k.map(([a,b]) => `<div class="kpi"><b>${b}</b><span>${a}</span></div>`).join("");
+  $("events").innerHTML = s.events.slice().reverse().join("<br>");
+}
+async function loop() {
+  while (true) {
+    if (playing && !busy) { busy = true; try { draw(await api("/api/step?seconds=" + $("speed").value, {method:"POST"})); } finally { busy = false; } }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+$("reset").onclick = doReset;
+$("play").onclick = () => { playing = !playing; $("play").textContent = playing ? "Pause" : "Play"; };
+$("cmp").onclick = async () => {
+  $("cmpOut").textContent = "Running...";
+  const rows = await api("/api/compare?hours=3&n_vehicles=" + $("nveh").value + "&demand_per_min=" + $("dem").value);
+  $("cmpOut").innerHTML = "<table><tr><th>policy</th><th>wait</th><th>p90</th><th>dead%</th><th>fails</th></tr>" +
+    rows.map(r => `<tr><td>${r.dispatch}<br><small>${r.maintenance}</small></td><td>${r.avg_wait_s}</td><td>${r.p90_wait_s}</td><td>${r.deadhead_pct}</td><td>${r.failures}</td></tr>`).join("") + "</table>";
+};
+init();
+</script>
+</body>
+</html>
