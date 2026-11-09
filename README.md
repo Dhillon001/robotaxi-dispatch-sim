@@ -12,37 +12,9 @@ Run a fleet of robotaxis on a real city map (San Francisco, Las Vegas, Austin, M
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![MapLibre](https://img.shields.io/badge/MapLibre%20GL-396CB2)
 ![OpenStreetMap](https://img.shields.io/badge/data-OpenStreetMap-7EBC6F?logo=openstreetmap&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-13%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-14%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-> Screenshots on this page use the built-in synthetic grid so they render offline. Pick **San Francisco** (or any real city) in the app for real streets, 3D buildings and satellite imagery.
-
----
-
-## Table of contents
-
-1. [Highlights](#highlights)
-2. [Screenshots](#screenshots)
-3. [How it works](#how-it-works)
-   - [The big picture](#the-big-picture)
-   - [The simulation loop](#the-simulation-loop)
-   - [Life of a robotaxi](#life-of-a-robotaxi)
-   - [Dispatch strategies](#dispatch-strategies)
-   - [Reliability and maintenance](#reliability-and-maintenance)
-   - [Battery and charging](#battery-and-charging)
-   - [Real cities from OpenStreetMap](#real-cities-from-openstreetmap)
-4. [System design](#system-design)
-   - [Tech stack](#tech-stack)
-   - [Components and data model](#components-and-data-model)
-   - [Request flow](#request-flow)
-   - [Frontend rendering pipeline](#frontend-rendering-pipeline)
-   - [Design decisions](#design-decisions)
-5. [API reference](#api-reference)
-6. [Results](#results)
-7. [Getting started](#getting-started)
-8. [Configuration](#configuration)
-9. [Project structure](#project-structure)
-10. [Limitations and roadmap](#limitations-and-roadmap)
 
 ---
 
@@ -57,7 +29,7 @@ Run a fleet of robotaxis on a real city map (San Francisco, Las Vegas, Austin, M
 | 🔋 **Battery and charging** | Cars drain as they drive, route to the least-busy charger, queue for plugs and unplug at 90%. Every car's battery is visible. |
 | 📊 **Policy comparison** | One click runs all six policy combinations headless across several random seeds and highlights the winner. |
 | ⚡ **Fast** | Lazy, cached shortest-path routing keeps city-scale road graphs (thousands of intersections) responsive. |
-| ✅ **Tested** | 13 automated tests cover the simulation, the OpenStreetMap adapter (offline, against real OSMnx output) and the API. |
+| ✅ **Tested** | 14 automated tests cover the simulation, the OpenStreetMap adapter (offline, against real OSMnx output) and the API. |
 
 ---
 
@@ -85,199 +57,34 @@ Run a fleet of robotaxis on a real city map (San Francisco, Las Vegas, Austin, M
 
 ## How it works
 
-### The big picture
+```mermaid
+flowchart LR
+  B["Browser<br/>map, controls, dashboard"] -->|"asks for the latest state<br/>every ~0.2 s"| S["FastAPI server"]
+  S --> E["Simulation engine<br/>(Python)"]
+  E --> G["City road graph<br/>(OpenStreetMap)"]
+  S -->|"JSON snapshot"| B
+```
 
-The browser is a thin, build-free client. All of the simulation runs in Python on the server, and the browser polls it for snapshots, then animates between them.
+The simulation runs in Python on the server. The browser just asks for the current state a few times a second and animates the cars smoothly between updates.
+
+**Every 2 simulated seconds, the engine does four things:**
+
+1. **New riders appear.** Requests arrive randomly (more at rush hour) at places weighted toward the city center.
+2. **Dispatch.** Waiting riders are matched to free cars. *Nearest* gives each rider the closest car. *Batch* looks at all riders and cars together and finds the assignment with the lowest total pickup time (the Hungarian algorithm), which is the version that wins.
+3. **Cars move.** Each car follows the shortest path on the road graph (Dijkstra), picks up the rider, and drops them off.
+4. **Wear and battery.** Cars drain battery as they drive and head to a charger below 30%. They also wear out and can break down, which strands the rider. *Predictive maintenance* sends worn cars for service before that happens.
 
 ```mermaid
 flowchart LR
-  subgraph Browser["Browser: static HTML and JavaScript"]
-    UI["Control panel and fleet dashboard"]
-    ANIM["60 fps interpolation loop"]
-    MAP["MapLibre GL map<br/>cars, routes, riders, chargers"]
-  end
-
-  subgraph Server["Server: FastAPI and Python"]
-    API["REST API<br/>reset, step, state, graph, compare"]
-    SIM["Simulation engine<br/>dispatch, reliability, charging"]
-    CITY["City graph and<br/>routing cache"]
-  end
-
-  OSM[("OpenStreetMap<br/>via OSMnx")]
-  TILES[("Map tiles<br/>OpenFreeMap vector<br/>Esri satellite")]
-
-  UI -->|"poll about every 220 ms"| API
-  API --> SIM
-  SIM --> CITY
-  CITY -.->|"first load of a city"| OSM
-  OSM -.->|"cached in data/osm_cache"| CITY
-  API -->|"JSON snapshot"| ANIM
-  ANIM --> MAP
-  MAP -.->|"streets, buildings, imagery"| TILES
+  R["Rider requests a ride"] --> D["Dispatch picks a car"] --> P["Car drives to pickup"] --> T["Drives rider to destination"] --> F["Free again<br/>(or goes to charge / service)"]
+  F --> D
 ```
 
-### The simulation loop
-
-The engine advances in 2-second ticks. Each tick spawns demand, assigns cars to riders, handles charging, then moves every car one step.
-
-```mermaid
-flowchart TD
-  START(["Tick: dt = 2 s"]) --> SPAWN["Spawn ride requests<br/>Poisson arrivals, commute-hour peaks"]
-  SPAWN --> ABANDON["Riders who waited over 10 min give up"]
-  ABANDON --> CHARGE["Charging logic:<br/>idle cars under 30% battery head to a charger"]
-  CHARGE --> DISPATCH{"Dispatch strategy"}
-  DISPATCH -->|nearest| GREEDY["Each request takes the closest free car"]
-  DISPATCH -->|"batch or predictive"| BATCH["Every 10 s: optimal car-to-rider matching"]
-  BATCH --> REPO["predictive only: every 30 s nudge idle cars<br/>toward under-served areas"]
-  GREEDY --> MAINT
-  BATCH --> MAINT
-  REPO --> MAINT
-  MAINT{"Maintenance policy"} -->|predictive| PM["Idle cars with high wear estimate<br/>get a planned 5 min service"]
-  MAINT -->|reactive| CARS
-  PM --> CARS
-  CARS["Update every car:<br/>move, drain battery, add wear, handle arrivals"] --> METRICS["Update metrics"]
-  METRICS --> END(["Advance clock"])
-```
-
-What "update every car" does:
-
-```mermaid
-flowchart TD
-  V["For each car"] --> S{"State"}
-  S -->|"maintenance or broken down"| T["Count down the timer, then return to service"]
-  S -->|charging| CH["Add charge each tick<br/>unplug at 90% and let the next queued car in"]
-  S -->|"driving"| M["Move along the route<br/>drain battery and add wear distance"]
-  M --> F{"Battery empty, or wear past<br/>this car's failure point?"}
-  F -->|yes| X["Breakdown:<br/>rider is re-queued, car is out for repair"]
-  F -->|no| R{"Reached the end of the route?"}
-  R -->|"heading to rider"| P["Pick up and start the ride"]
-  R -->|"with passenger"| D["Drop off and become available"]
-  R -->|"going to charge"| PL["Plug in, or join the queue if all plugs are busy"]
-  R -->|no| KEEP["Keep driving"]
-```
-
-### Life of a robotaxi
-
-Every car is a small state machine:
-
-```mermaid
-stateDiagram-v2
-  direction LR
-  state "Available" as AV
-  state "Heading to rider" as HR
-  state "With passenger" as WP
-  state "Repositioning" as RP
-  state "Going to charge" as GC
-  state "Charging" as CG
-  state "Maintenance" as MT
-  state "Broken down" as BD
-
-  [*] --> AV
-  AV --> HR: assigned a request
-  HR --> WP: pickup
-  WP --> AV: dropoff
-  AV --> RP: predictive dispatch
-  RP --> AV: arrived
-  AV --> GC: battery under 30%
-  GC --> CG: plug free, or join queue
-  CG --> AV: battery reaches 90%
-  AV --> MT: predictive maintenance
-  MT --> AV: service done
-  HR --> BD: failure
-  WP --> BD: failure, rider re-queued
-  RP --> BD: failure
-  GC --> BD: failure or empty battery
-  BD --> AV: repaired
-```
-
-### Dispatch strategies
-
-| Strategy | Idea | Strength | Weakness |
-|---|---|---|---|
-| `nearest` | Process requests in order. Each takes the closest free car. | Simple, instant. | Locally greedy: an early rider can steal the car a later rider needed more. |
-| `batch` | Every 10 s, collect all waiting riders and free cars and solve the assignment problem optimally. | Minimizes total pickup time across the fleet, so waits drop sharply. | Slight delay of up to 10 s before a car is assigned. |
-| `predictive` | `batch`, plus every 30 s nudge up to 3 idle cars toward neighborhoods with more expected demand than cars. | Aims to shorten future pickups. | Currently has no measurable effect (see [Results](#results)). |
-
-```mermaid
-flowchart LR
-  R["Waiting riders"] --> M["Cost matrix<br/>cost = pickup ETA minus 0.5 x rider age"]
-  C["Free cars"] --> M
-  M --> H["Hungarian algorithm<br/>scipy linear_sum_assignment"]
-  H --> A["Optimal car-to-rider pairs"]
-  A --> G["Cars start driving to pickups"]
-```
-
-The `0.5 x rider age` term is a fairness bonus: the longer someone has waited, the more it pays to serve them now, which prevents starvation of unlucky riders.
-
-### Reliability and maintenance
-
-Every car has a hidden distance at which it will fail, drawn from a **Weibull distribution** (shape 2.2, scale 90 km). Shape above 1 means wear-out failures: the longer since the last service, the more likely a failure. The simulator tracks kilometers driven since the last service (the car's *wear*).
-
-```mermaid
-flowchart TD
-  D["Car drives"] --> W["Wear km since last service goes up"]
-  W --> Q{"Wear past this car's<br/>hidden failure distance?"}
-  Q -->|no| D
-  Q -->|yes| F["Breakdown"]
-  F --> RQ["Rider on board is stranded and re-queued<br/>their wait keeps growing"]
-  F --> RP["Car is out of service for a random repair time<br/>mean 15 min"]
-  RP --> RESET["Wear resets, new failure distance drawn"]
-
-  W --> P{"Policy: predictive?"}
-  P -->|"yes, car is idle"| E["Noisy health estimate = wear / scale + noise"]
-  E --> T{"Estimate at least 0.6?"}
-  T -->|yes| S["Planned 5 min service<br/>wear resets before it can fail"]
-  T -->|no| D
-```
-
-Predictive maintenance trades a little capacity (cars are parked for planned service) for far fewer surprise breakdowns, which strand riders. The [results](#results) quantify this.
-
-### Battery and charging
-
-Each car has a battery (90 km range). Chargers are spread across the city, biased toward where demand is, with a few plugs each.
-
-```mermaid
-flowchart TD
-  A["Idle or repositioning car"] --> B{"Battery under 30%?"}
-  B -->|no| Z["Stay available for rides"]
-  B -->|yes| C["Pick a charger: lowest<br/>travel time + 10 min per car backlog"]
-  C --> D["Drive to the charger"]
-  D --> E{"Free plug?"}
-  E -->|yes| F["Plug in and charge<br/>about 45 min for 0 to 100%"]
-  E -->|no| G["Wait in the queue"]
-  G --> F
-  F --> H{"Battery at 90%?"}
-  H -->|no| F
-  H -->|yes| I["Unplug, next queued car takes the plug"]
-  I --> Z
-```
-
-- **Charger placement:** farthest-point sampling weighted by demand, starting at the city center, so stations are spread out but near the action. Default: `max(2, ceil(cars / 8))` stations.
-- **Plugs:** `ceil(0.25 x cars / stations) + 1` per station. Deliberately scarce, so queues sometimes form.
-- **Failure mode:** a car that runs completely dry is treated as a breakdown (towed, rider re-queued). In normal runs the charging policy avoids this.
-
-### Real cities from OpenStreetMap
-
-```mermaid
-flowchart LR
-  A["Pick a city<br/>(center lat/lon and radius)"] --> B{"Cached in<br/>data/osm_cache?"}
-  B -->|yes| D
-  B -->|no| C["OSMnx downloads the drivable road network<br/>from OpenStreetMap"]
-  C --> D["Convert to the simulator graph"]
-  D --> E["Estimate speed per road from maxspeed tags<br/>or road type, at 75% of the limit"]
-  E --> F["Keep one-way directions, drop parallel duplicates"]
-  F --> G["Keep the largest strongly connected component<br/>so every car can reach every intersection"]
-  G --> H["City object:<br/>nodes with lat/lon and local meters,<br/>edges with length and travel time"]
-  H --> I["Lazy shortest-path caches"]
-```
-
-The conversion is exercised in the test suite offline, by feeding OSMnx a small hand-made `.osm` file that includes one-way streets and `mph` speed limits.
+**Why these choices:** Python for the engine because SciPy and NetworkX do the hard parts (optimal matching, shortest paths). Polling instead of WebSockets because it is the simplest thing that works. Shortest paths are computed lazily and cached, because precomputing every pair does not scale to a real city. MapLibre with OpenFreeMap because it needs no API key.
 
 ---
 
-## System design
-
-### Tech stack
+## Tech stack
 
 | Layer | Technology | Why |
 |---|---|---|
@@ -289,151 +96,6 @@ The conversion is exercised in the test suite offline, by feeding OSMnx a small 
 | Basemaps | **OpenFreeMap** (vector, 3D buildings), **Esri World Imagery** (satellite) | Free, no API key |
 | Tests | **pytest**, FastAPI `TestClient` | Simulation, OSM adapter and API are covered |
 | Screenshots | **Playwright** | `scripts/screenshots.py` regenerates this page's images |
-
-### Components and data model
-
-```mermaid
-classDiagram
-  class Sim {
-    +Config cfg
-    +City city
-    +list~Vehicle~ vehicles
-    +list~Station~ stations
-    +list~Request~ pending
-    +step()
-    +run(seconds)
-    +metrics() dict
-    +snapshot() dict
-  }
-  class Config {
-    +int n_vehicles
-    +float demand_per_min
-    +str dispatch
-    +str maintenance
-    +float battery_range_km
-    +float weibull_scale_km
-    +int seed
-  }
-  class Vehicle {
-    +str state
-    +list route
-    +float soc
-    +float km
-    +float fail_at_km
-    +float heading
-  }
-  class Request {
-    +float t
-    +node origin
-    +node dest
-    +float picked_at
-  }
-  class Station {
-    +str name
-    +node node
-    +int plugs
-    +list occupied
-    +list queue
-  }
-  class City {
-    +DiGraph g
-    +dict w
-    +to(target) dict
-    +near(src, cutoff) dict
-    +path(a, b) list
-    +geojson() dict
-  }
-  Sim --> Config
-  Sim --> City
-  Sim "1" o-- "many" Vehicle
-  Sim "1" o-- "many" Request
-  Sim "1" o-- "many" Station
-```
-
-- `sim/city.py` owns the road graph, demand weights and all routing queries. It is shared across simulations, so caches are reused (the headless comparison runs 18 simulations on one `City`).
-- `sim/engine.py` owns simulation state and rules. It never touches the network or the browser.
-- `app/main.py` is a thin HTTP layer holding one live `Sim` in memory.
-
-### Request flow
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant B as Browser
-  participant A as FastAPI
-  participant S as Sim and City
-
-  B->>A: GET /api/config
-  A-->>B: policies, city list, default city
-  B->>A: POST /api/reset?city=san_francisco&dispatch=batch
-  A->>S: load city (download once, then cached), create Sim
-  A-->>B: city info (intersections, road segments)
-  B->>A: GET /api/graph
-  A-->>B: road network as GeoJSON
-  loop every ~220 ms
-    B->>A: POST /api/step?seconds=7.5
-    A->>S: run(seconds)
-    S-->>A: snapshot
-    A-->>B: cars, riders, chargers, metrics, events
-    Note over B: store new target positions,<br/>draw route lines and dashboard
-  end
-  loop every animation frame (60 fps)
-    Note over B: interpolate each car between its old and new position,<br/>update map layers
-  end
-  B->>A: GET /api/compare?hours=3
-  A->>S: run 6 policy combinations x 3 seeds headless
-  A-->>B: comparison table
-```
-
-### Frontend rendering pipeline
-
-The server sends positions a few times per second. The browser fills in the frames in between, so motion looks continuous.
-
-```mermaid
-flowchart TD
-  SNAP["JSON snapshot from /api/step"] --> INGEST["ingest()"]
-  INGEST --> T["Per-car interpolation record:<br/>previous position and heading, new target"]
-  INGEST --> UI["Dashboard DOM:<br/>fleet bar, battery list, charger list, metrics"]
-  INGEST --> RT["Route lines to the routes source"]
-  INGEST --> CM["Charger markers"]
-
-  T --> RAF["requestAnimationFrame loop"]
-  RAF --> SRC["GeoJSON sources: cars and riders<br/>updated every frame"]
-
-  subgraph Layers["MapLibre layers, bottom to top"]
-    L0["Basemap: vector style or satellite"]
-    L1["Sim road network"]
-    L2["Route glow and route lines"]
-    L3["Rider pulse and rider dot"]
-    L4["Car glow"]
-    L5["Car icons, map-aligned and rotated"]
-  end
-  RT --> L2
-  SRC --> L3
-  SRC --> L4
-  SRC --> L5
-```
-
-Details worth knowing:
-
-- Cars are a **symbol layer** with `icon-pitch-alignment: map`, so they lie flat on the road and tilt with the 3D camera, instead of floating as HTML markers.
-- The **dark theme** recolors the light vector style on the fly by inverting lightness while keeping hue, with special rules for roads, labels and buildings.
-- **Interaction:** two-finger twist (Safari, iPad, phone) or Option + two-finger swipe (Chrome) rotates and tilts the camera; hover a car for its battery and wear.
-
-### Design decisions
-
-| Decision | Alternatives | Why this way |
-|---|---|---|
-| Simulation on the server, browser polls | Run the sim in JavaScript | Python's scientific stack (SciPy, NetworkX, OSMnx) is the right tool, and the same engine powers the headless policy comparison |
-| Polling, not WebSockets | WebSockets / SSE | Simplest thing that works. One in-flight request, no connection state, trivially testable |
-| Lazy cached Dijkstra | Precompute all-pairs paths | All-pairs is O(n²) memory. Fine for 200 nodes, unusable for a real city (thousands of nodes). Caches are LRU-bounded |
-| Hungarian algorithm for `batch` | Greedy, auction, ILP | Optimal for the assignment problem and fast at this scale, with one line via SciPy |
-| Weibull for failures | Constant failure rate | Wear-out behavior (increasing hazard) is what makes preventive maintenance meaningful |
-| MapLibre + OpenFreeMap | Google Maps, Apple Maps, Mapbox | No API key or billing, vector tiles with 3D buildings, GPU custom layers. Google's terms also forbid using its tiles in other map libraries |
-| No frontend build step | React / Vite | One HTML file plus a vendored library. Clone, install, run |
-| Single in-memory `Sim` | Per-session state, database | A demo has one viewer. A multi-user deployment would key sims by session ID |
-
-**Performance:** routing uses single-source Dijkstra with an LRU cache keyed by destination (500 entries) and bounded-radius neighborhood caches (6,000 entries). The engine runs a full 4-hour, 30-car simulation in about half a second. Because a `City` is shared, the headless comparison (6 policy combinations x 3 seeds = 18 simulations) takes about 4 seconds.
 
 ---
 
@@ -472,7 +134,8 @@ curl -X POST "localhost:8000/api/step?seconds=120"
     "soc": 68,                        // battery %
     "plugged": false, "station": null,
     "km": 0.8, "health": 0.01,        // km since service, wear ratio
-    "route": [[-122.4179, 37.7688], [-122.4170, 37.7687]]   // upcoming path as [lon, lat]
+    "route": [[-122.4179, 37.7688], [-122.4170, 37.7687]],  // upcoming path as [lon, lat]
+    "eta_s": 95, "dist_m": 640        // time and distance left on the current route
   }],
   "pending": [{ "id": 12, "lat": 37.77, "lon": -122.41, "wait": 45 }],     // riders waiting
   "stations": [{ "id": 0, "name": "Charger A", "lat": 37.7748, "lon": -122.4191, "plugs": 3, "in_use": 1, "queue": 0 }],
@@ -539,7 +202,8 @@ Open **http://localhost:8000**. Keep the terminal window open while you use the 
 |---|---|
 | City, dispatch, maintenance, vehicles, demand | Choose the scenario, then **Reset & apply** (picking a city applies it immediately) |
 | Pause / speed (10x, 30x, 90x) | Control simulation speed |
-| 3D view, Orbit, Follow a car | Camera modes |
+| 3D view, Orbit | Camera modes |
+| Car number box (or click a car) | Chase camera: rides along with that car, with a turn-by-turn card. Esc to stop |
 | Satellite | Switch the real-city map to aerial imagery |
 | Sun / moon button | Light and dark themes |
 | Run headless comparison | Compare all policy combinations |
@@ -606,7 +270,7 @@ robotaxi-dispatch-sim/
 
 **Roadmap**
 
-- [ ] Chase camera: pick any car by number and follow it turn by turn
+- [x] Chase camera: pick any car by number and follow it turn by turn
 - [ ] Fix and tune the repositioning heuristic, then try a learned demand forecast
 - [ ] Split-screen race: two strategies on identical demand with a live scoreboard
 - [ ] Click-to-place charging stations and a what-if analysis of charger count
