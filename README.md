@@ -9,6 +9,12 @@ live Leaflet map, and a headless policy-comparison endpoint.
     uvicorn app.main:app --reload      # open http://localhost:8000
     pytest -q
 
+## Cities
+Pick a city in the sidebar: a synthetic grid (instant, offline) or real OpenStreetMap roads for
+Foster City, San Francisco, Las Vegas, Austin, Miami, Los Angeles. Real cities download roads
+via OSMnx on first use (needs internet, ~10-30s) and are cached in `data/osm_cache/`.
+Add your own in `sim/city.py:CITIES` (centre lat/lon + radius in metres).
+
 ## What's modeled
 - Dispatch: `nearest` (greedy FIFO), `batch` (10s Hungarian assignment, fairness-weighted), `predictive` (batch + demand-aware repositioning)
 - Maintenance: `reactive` (fix after failure) vs `predictive` (service idle cars when noisy health estimate crosses threshold)
@@ -16,7 +22,7 @@ live Leaflet map, and a headless policy-comparison endpoint.
 - Metrics: wait avg/p90, utilization, deadhead %, failures, stranded riders, abandonment (10 min patience)
 
 ## Roadmap
-1. Real roads via OSMnx (replace `sim/city.py:build_city`)
+1. Curved road geometry and one-way/turn restrictions in the animation; traffic-aware travel times
 2. Tune/replace the repositioning heuristic (currently ~no gain over batch); try a learned demand forecast
 3. Component-level telemetry (battery, lidar, brakes) feeding an actual failure-prediction model
 4. Charging + depot constraints, surge/time-of-day demand from real trip data

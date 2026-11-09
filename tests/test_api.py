@@ -10,3 +10,11 @@ def test_flow():
     assert len(s["vehicles"]) == 8 and "metrics" in s
     assert c.get("/api/graph").json()["features"]
     assert c.get("/").status_code == 200
+
+
+def test_cities_and_bad_city():
+    cfg = c.get("/api/config").json()
+    assert any(x["key"] == "grid" for x in cfg["cities"]) and len(cfg["cities"]) > 3
+    assert c.post("/api/reset?city=nope").status_code == 404
+    r = c.post("/api/reset?city=grid").json()
+    assert r["city"]["nodes"] > 50

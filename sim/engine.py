@@ -14,7 +14,7 @@ import networkx as nx
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from .city import build_city, zone_weights
+from .city import City, get_city
 
 DISPATCH = ("nearest", "batch", "predictive")
 MAINT = ("reactive", "predictive")
@@ -78,18 +78,18 @@ class Request:
 
 
 class Sim:
-    def __init__(self, cfg: Config | None = None, graph=None):
+    def __init__(self, cfg: Config | None = None, city: City | None = None):
         self.cfg = cfg or Config()
         assert self.cfg.dispatch in DISPATCH and self.cfg.maintenance in MAINT
         self.rng = random.Random(self.cfg.seed)
         self.np = np.random.default_rng(self.cfg.seed)
-        self.g = graph or build_city()
-        self.nodes = list(self.g.nodes)
-        self.w = zone_weights(self.g)
+        self.city = city or get_city("grid")
+        self.g = self.city.g
+        self.nodes = self.city.nodes
+        self.w = self.city.w
         self._w_list = [self.w[n] for n in self.nodes]
-        self._tt = dict(nx.all_pairs_dijkstra_path_length(self.g, weight="time"))
-        self._path_cache: dict = {}
-        self.depot = min(self.nodes, key=lambda n: (self.g.nodes[n]["x"] ** 2 + self.g.nodes[n]["y"] ** 2))
+        self.depot = self.city.depot
+        self._need: dict | None = None
         self.t = 0.0
         self.next_req = 0
         self.pending: list[Request] = []
@@ -98,7 +98,6 @@ class Sim:
         self.vehicles = [self._new_vehicle(i) for i in range(self.cfg.n_vehicles)]
         self._last_batch = -1e9
         self.events: list[str] = []
-        self._nbr = {k: [j for j in self.nodes if self._tt[k][j] <= 150] for k in self.nodes}
 
     # ---------------- helpers ----------------
     def _new_vehicle(self, i: int) -> Vehicle:
@@ -110,13 +109,10 @@ class Sim:
         return self.cfg.weibull_scale_km * self.np.weibull(self.cfg.weibull_shape)
 
     def tt(self, a, b) -> float:
-        return self._tt[a][b]
+        return self.city.tt(a, b)
 
     def path(self, a, b) -> list:
-        key = (a, b)
-        if key not in self._path_cache:
-            self._path_cache[key] = nx.shortest_path(self.g, a, b, weight="time")
-        return self._path_cache[key]
+        return self.city.path(a, b)
 
     def sensor_health(self, v: Vehicle) -> float:
         """Noisy 0..1+ health estimate. >1 means 'past typical failure point'."""
@@ -160,7 +156,7 @@ class Sim:
             o = self.rng.choices(self.nodes, weights=self._w_list)[0]
             d = self.rng.choices(self.nodes, weights=self._w_list)[0]
             tries = 0
-            while (d == o or self.tt(o, d) < 90) and tries < 20:
+            while (d == o or self.city.straight_m(o, d) < 350) and tries < 20:
                 d = self.rng.choices(self.nodes, weights=self._w_list)[0]
                 tries += 1
             if d == o:
@@ -238,8 +234,10 @@ class Sim:
                 tgt = v.route[-1] if v.route else v.node
                 supply[tgt] = supply.get(tgt, 0) + 1
         n = len(self.vehicles)
-        nbr = self._nbr
-        need = {k: sum(self.w[j] for j in nbr[k]) / total_w * n * 3.0 for k in self.nodes}  # x3: neighborhoods overlap
+        nbr = self.city.neighborhoods(150.0)
+        if self._need is None:  # x3: neighborhoods overlap
+            self._need = {k: sum(self.w[j] for j in nbr[k]) / total_w * n * 3.0 for k in self.nodes}
+        need = self._need
 
         def local_supply(k):
             return sum(supply.get(j, 0) for j in nbr[k])
@@ -251,8 +249,8 @@ class Sim:
             if local_supply(v.node) - need[v.node] < 0.6:
                 continue
             best, best_gap = None, 0.6
-            for k in self.nodes:
-                if k == v.node or self.tt(v.node, k) > 300:
+            for k in self.city.near(v.node, 300.0):
+                if k == v.node:
                     continue
                 gap = need[k] - local_supply(k)
                 if gap > best_gap:
@@ -418,16 +416,10 @@ class Sim:
                 "events": self.events[-8:]}
 
     def graph_geojson(self) -> dict:
-        feats = []
-        for a, b in self.g.edges:
-            na, nb = self.g.nodes[a], self.g.nodes[b]
-            feats.append({"type": "Feature", "properties": {"fast": self.g.edges[a, b]["time"] < self.g.edges[a, b]["length"] / 10},
-                          "geometry": {"type": "LineString",
-                                       "coordinates": [[na["lon"], na["lat"]], [nb["lon"], nb["lat"]]]}})
-        return {"type": "FeatureCollection", "features": feats}
+        return self.city.geojson()
 
 
-def compare(hours: float = 2.0, seeds=(1, 2, 3), **overrides) -> list[dict]:
+def compare(hours: float = 2.0, seeds=(1, 2, 3), city: City | None = None, **overrides) -> list[dict]:
     """Headless policy comparison, averaged over seeds."""
     rows = []
     for d in DISPATCH:
@@ -435,7 +427,7 @@ def compare(hours: float = 2.0, seeds=(1, 2, 3), **overrides) -> list[dict]:
             acc = []
             for s in seeds:
                 cfg = Config(dispatch=d, maintenance=m, seed=s, **overrides)
-                acc.append(Sim(cfg).run(hours * 3600).metrics())
+                acc.append(Sim(cfg, city).run(hours * 3600).metrics())
             keys = ["service_rate", "avg_wait_s", "p90_wait_s", "utilization", "deadhead_pct",
                     "failures", "planned_services", "stranded_riders", "abandoned"]
             row = {"dispatch": d, "maintenance": m}

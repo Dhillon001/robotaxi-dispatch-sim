@@ -3,5 +3,6 @@ uvicorn
 networkx
 numpy
 scipy
+osmnx
 pytest
 httpx

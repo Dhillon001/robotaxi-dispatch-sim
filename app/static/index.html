@@ -94,6 +94,8 @@
 <main>
   <aside>
     <h2>Simulation</h2>
+    <label>City</label><select id="city"></select>
+    <div id="cityInfo" style="font-size:11px;color:var(--mut);margin-top:3px"></div>
     <label>Dispatch strategy</label><select id="dispatch"></select>
     <label>Maintenance policy</label><select id="maint"></select>
     <div class="row">
@@ -160,21 +162,40 @@ function buildLegend() {
     `<div><i class="rider-dot"></i>Waiting rider</div>`;
 }
 
-async function api(path, opts) { const r = await fetch(path, opts); return r.json(); }
+async function api(path, opts) {
+  const r = await fetch(path, opts), j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.statusText);
+  return j;
+}
+async function loadRoads() {
+  if (roads) map.removeLayer(roads);
+  roads = L.geoJSON(await api("/api/graph"), {style: roadStyle, interactive:false}).addTo(map);
+  map.fitBounds(roads.getBounds(), {padding:[30,30]});
+}
 
 async function init() {
   const cfg = await api("/api/config");
+  $("city").innerHTML = cfg.cities.map(c => `<option value="${c.key}">${c.label}</option>`).join("");
   $("dispatch").innerHTML = cfg.dispatch.map(d => `<option>${d}</option>`).join("");
   $("maint").innerHTML = cfg.maintenance.map(d => `<option>${d}</option>`).join("");
-  roads = L.geoJSON(await api("/api/graph"), {style: roadStyle}).addTo(map);
-  map.fitBounds(roads.getBounds(), {padding:[30,30]});
   applyTheme(theme);
   await doReset(); loop();
 }
 async function doReset() {
-  const q = new URLSearchParams({dispatch:$("dispatch").value, maintenance:$("maint").value, n_vehicles:$("nveh").value, demand_per_min:$("dem").value});
-  await api("/api/reset?" + q, {method:"POST"});
-  carLayer.clearLayers(); cars.clear(); draw(await api("/api/state"));
+  const btn = $("reset"), info = $("cityInfo"), real = $("city").value !== "grid";
+  const q = new URLSearchParams({city:$("city").value, dispatch:$("dispatch").value, maintenance:$("maint").value, n_vehicles:$("nveh").value, demand_per_min:$("dem").value});
+  btn.disabled = true; btn.textContent = real ? "Loading roads… (first time can take 30s)" : "Loading…";
+  playing = false;
+  try {
+    const r = await api("/api/reset?" + q, {method:"POST"});
+    info.style.color = ""; info.textContent = `${r.city.nodes.toLocaleString()} intersections · ${r.city.edges.toLocaleString()} road segments`;
+    await loadRoads();
+    carLayer.clearLayers(); cars.clear(); draw(await api("/api/state"), true);
+  } catch (e) {
+    info.style.color = css("--down"); info.textContent = e.message.length > 170 ? e.message.slice(0, 170) + "…" : e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "Reset & apply"; playing = $("play").textContent === "Pause";
+  }
 }
 
 function carIcon(v) {
